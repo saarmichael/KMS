@@ -85,28 +85,33 @@ KMS/
 │   └── TESTING.md
 ├── backend/
 │   ├── pyproject.toml       uv-managed; ruff + pytest config
-│   ├── alembic/             migrations
-│   ├── kms/
+│   ├── .env.example         every env var, commented; copy to .env (git-ignored)
+│   ├── alembic/             migrations (0001 = full schema)
+│   ├── src/kms/             src layout (uv's default; keeps tests from importing uninstalled code)
 │   │   ├── config.py        pydantic-settings, every env var in one place
-│   │   ├── db.py            engine, sessions, LISTEN connection
+│   │   ├── db.py            engine, LISTEN connection, notify self-test
 │   │   ├── models.py        SQLAlchemy Core tables (assets, search_units)
+│   │   ├── migrations.py    run/inspect Alembic from Python
+│   │   ├── cli.py           `uv run kms <command>`
 │   │   ├── blob/            BlobStore interface + LocalBlobStore
 │   │   ├── ai/              Vision / Embedder / Reranker interfaces, real + fake adapters, schema
 │   │   ├── ingest/          chunker, image preprocessing, summary source, worker
 │   │   ├── search/          keyword path, vector path, rrf, grouping, cache
 │   │   ├── api/             FastAPI routers: assets, collections, search, health
-│   │   └── main.py          app factory, startup (migrations check, worker threads, static SPA)
+│   │   ├── static/          built SPA (git-ignored, produced by `npm run build`)
+│   │   └── main.py          app factory, startup (worker threads, static SPA)
 │   └── tests/
+│       ├── conftest.py      kms_test database fixture (migrated once, truncated per test)
 │       ├── unit/
 │       ├── integration/
 │       └── live/
-├── frontend/                Vite + React + TS + Tailwind; `npm run build` → backend/kms/static/
+├── frontend/                Vite + React + TS + Tailwind; `npm run build` → backend/src/kms/static/
 ├── seed/
 │   └── demo/                ~30 files + README.md (file list, licences, query matrix)
-├── docker-compose.yml       db (pgvector image) + api (built from Dockerfile)
+├── docker/                  initdb SQL (creates kms_test) + container entrypoint
+├── docker-compose.yml       db (pgvector image); api behind `--profile full`
 ├── Dockerfile               multi-stage: node build → python runtime; entrypoint runs migrations
-├── Makefile
-└── .env.example
+└── Makefile
 ```
 
 ---
