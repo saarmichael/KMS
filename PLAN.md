@@ -429,3 +429,20 @@ Each is its own gate; each can be skipped without touching anything else.
 ## Phase log
 
 _Appended at each gate: date, deviations from the plan, decisions taken._
+
+### Phase 0 — Sep 24, 2026
+
+- **Built.** Toolchain (uv, Python 3.13, Docker Desktop, Railway CLI), git with repo-local identity, docs renamed
+  (D12), backend skeleton with settings, Core tables, Alembic migration 0001 (full schema), health endpoint with
+  LISTEN/NOTIFY self-test, test fixtures on `kms_test`, Vite + React + TS + Tailwind hello page, compose,
+  Dockerfile with migrations at boot, Makefile. Railway project `kms`: Postgres, `api` service with a volume at
+  `/data`, variables, public domain. Deployed with `railway up`.
+- **Live URL:** https://api-production-6776.up.railway.app — `/api/health` reports db ok, migrations 0001,
+  notify ok (~15 ms). Railway's Postgres ships pgvector; the platform risk is retired.
+- **Deviations.** `src/kms/` layout instead of `backend/kms/` (uv default, updated in the layout tree). The
+  Dockerfile overrides Vite's output directory, since Vite writes into the backend for local dev. Settings
+  accept plain `postgresql://` URLs and add the psycopg driver, because that is what Railway hands out.
+- **Decisions taken.** The `api` compose service is kept behind `--profile full` for a local container check.
+  Railway region: default (not chosen explicitly). No GitHub remote yet (D9).
+- **Gate.** `make test` green (2 tests). Container verified locally and on Railway. Awaiting Michael's demo run
+  and the `phase-0` tag.
