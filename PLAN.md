@@ -444,5 +444,5 @@ _Appended at each gate: date, deviations from the plan, decisions taken._
   accept plain `postgresql://` URLs and add the psycopg driver, because that is what Railway hands out.
 - **Decisions taken.** The `api` compose service is kept behind `--profile full` for a local container check.
   Railway region: default (not chosen explicitly). No GitHub remote yet (D9).
-- **Gate.** `make test` green (2 tests). Container verified locally and on Railway. Awaiting Michael's demo run
-  and the `phase-0` tag.
+- **Gate.** `make test` green (2 tests). Container verified locally and on Railway. Demo run by Michael, tagged
+  `phase-0` on Sep 24, 2026.
