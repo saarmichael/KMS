@@ -4,7 +4,7 @@ WORKDIR /ui
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN npm run build -- --outDir dist --emptyOutDir
 
 # Stage 2: Python runtime
 FROM python:3.13-slim AS app
