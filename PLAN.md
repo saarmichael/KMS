@@ -1,6 +1,6 @@
 # KMS — Working plan
 
-Sep 24, 2026 · Michael, with Claude Code
+Sep 24, 2026 · Michael, with Claude Code · phases revised Sep 25, 2026
 
 This is the working plan, not the implementation spec. The design (`docs/system-design.md`) says what
 the system is; the test plan (`docs/TESTING.md`) says how we know it works; this file says in what
@@ -25,15 +25,22 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D6 | Git | Local git only for now, no CI. Identity set **in this repo only**: `Michael Saar <saarmichael@gmail.com>` | decided |
 | D7 | Local Postgres | Docker Desktop, compose runs the `pgvector/pgvector` image | decided |
 | D8 | Python version and package manager | Python 3.13 pinned via `uv` (`.python-version`), not the machine's 3.14: the AI vendor SDKs and pgvector wheels are safest one minor version behind | decided |
-| D9 | Deploy mechanism | Railway CLI `railway up` from the local directory for now. GitHub will be added later (not yet); switching Railway to deploy from it is a one-time dashboard change | decided |
+| D9 | Deploy mechanism | Railway CLI `railway up` from the local directory for now. GitHub will be added later (not yet); switching Railway to deploy from it is a one-time dashboard change | decided, revisited by D21 |
 | D10 | Vendor spike before the queue | Phase 1 talks to Gemini and Voyage before any pipeline code exists, because the SDK shapes and limits are the largest unknown that is outside our control | decided |
 | D11 | Schema migrations | Migration 0001 in Phase 0 creates the extension and both tables exactly as designed; later phases add migrations only if the design changes | decided |
 | D12 | Doc file names | Rename to `docs/system-design.md`, `docs/TESTING.md` (the test plan's own stated target) and move `docs/README.md` to the repo root, so the README's links resolve | decided |
 | D13 | Blob deletion | Out of scope. Deleting a collection deletes its DB rows only; blobs stay on the volume (immutable by hash, harmless). Noted in README | decided |
 | D14 | Phase gate | Defined in "How we work" below | decided |
+| D15 | Phase split | The former Phase 2 (upload + queue) is two phases: Phase 2 is everything the API does at upload time, Phase 3 is everything the worker does. Every phase after that is renumbered by one | decided (Sep 25) |
+| D16 | Code lives in the phase of its first caller | Summary source with the worker (Phase 3, not the seed phase); the `Reranker` interface with search (Phase 4, not the adapters); structured logging built once in Phase 3, only verified in Phase 7 | decided (Sep 25) |
+| D17 | Upload is a service function | `ingest.upload(collection, filename, bytes)` holds the upload logic; the `POST /api/assets` endpoint wraps it and the seeder calls it directly. Seeding at container start runs before the server accepts requests, so it cannot go over HTTP | decided (Sep 25) |
+| D18 | Query matrix is data | `seed/demo/matrix.json` holds the matrix rows (query, must hit, must also hit, must not top); `make matrix` reads it; the seed README renders the same rows as prose | decided (Sep 25) |
+| D19 | Worker runs standalone too | `uv run kms worker` runs the same thread pool as its own process. The API still starts the pool by default (`WORKER_ENABLED=true`); the command is for the manual checklist (stop the worker, kill it mid-job) and is the scale path the design names (a second container) | decided (Sep 25, Claude's pick) |
+| D20 | One CLI entry point | Everything is a subcommand of `kms`: `describe`, `embed`, `worker`, `seed`, `matrix`. No separate console scripts | decided (Sep 25) |
+| D21 | GitHub remote and deploy source | The interviewer reads the code on GitHub, and the design doc says Railway deploys from GitHub. Whether to add the remote now and switch Railway to it, or keep `railway up` until Phase 7 | **open — Michael's call, asked now rather than in Phase 7** |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
-key, Voyage API key, Railway account. GitHub repo: later, by Michael's call (D9).
+key, Voyage API key, Railway account. GitHub repo: D21.
 
 ---
 
@@ -67,7 +74,8 @@ make db          # docker compose up -d db
 make dev         # API with reload + Vite dev server, fake adapters
 make test        # unit + integration (starts db if needed)
 make test-live   # adds the live vendor test; needs API keys
-make seed        # ingests seed/demo/ through the upload path
+make seed        # uv run kms seed: ingests seed/demo/ through the upload service function
+make matrix      # uv run kms matrix: runs seed/demo/matrix.json against an API URL
 make build       # builds the SPA and the container image
 make deploy      # railway up
 ```
@@ -84,19 +92,20 @@ KMS/
 │   ├── system-design.md
 │   └── TESTING.md
 ├── backend/
-│   ├── pyproject.toml       uv-managed; ruff + pytest config
+│   ├── pyproject.toml       uv-managed; ruff + pytest config; one console script: kms
 │   ├── .env.example         every env var, commented; copy to .env (git-ignored)
 │   ├── alembic/             migrations (0001 = full schema)
+│   ├── spike/               Phase 1 throwaway scripts, kept in git, never imported
 │   ├── src/kms/             src layout (uv's default; keeps tests from importing uninstalled code)
 │   │   ├── config.py        pydantic-settings, every env var in one place
 │   │   ├── db.py            engine, LISTEN connection, notify self-test
 │   │   ├── models.py        SQLAlchemy Core tables (assets, search_units)
 │   │   ├── migrations.py    run/inspect Alembic from Python
-│   │   ├── cli.py           `uv run kms <command>`
+│   │   ├── cli.py           `uv run kms <command>`: describe, embed, worker, seed, matrix
 │   │   ├── blob/            BlobStore interface + LocalBlobStore
-│   │   ├── ai/              Vision / Embedder / Reranker interfaces, real + fake adapters, schema
-│   │   ├── ingest/          chunker, image preprocessing, summary source, worker
-│   │   ├── search/          keyword path, vector path, rrf, grouping, cache
+│   │   ├── ai/              Vision / Embedder / Reranker interfaces, real + fake adapters, schema, prompts
+│   │   ├── ingest/          upload service function, chunker, images, summary source, worker, listener
+│   │   ├── search/          keyword path, vector path, fusion + grouping, service (query-embed cache lives here)
 │   │   ├── api/             FastAPI routers: assets, collections, search, health
 │   │   ├── static/          built SPA (git-ignored, produced by `npm run build`)
 │   │   └── main.py          app factory, startup (worker threads, static SPA)
@@ -107,7 +116,7 @@ KMS/
 │       └── live/
 ├── frontend/                Vite + React + TS + Tailwind; `npm run build` → backend/src/kms/static/
 ├── seed/
-│   └── demo/                ~30 files + README.md (file list, licences, query matrix)
+│   └── demo/                ~30 files + README.md (file list, licences) + matrix.json (query matrix)
 ├── docker/                  initdb SQL (creates kms_test) + container entrypoint
 ├── docker-compose.yml       db (pgvector image); api behind `--profile full`
 ├── Dockerfile               multi-stage: node build → python runtime; entrypoint runs migrations
@@ -122,15 +131,17 @@ KMS/
 | --- | --- | --- |
 | 0 | Environment, toolchain, platform (can Railway run our container, Postgres, volume, LISTEN/NOTIFY?) | Hello-world app on a live URL, `make test` green |
 | 1 | Vendor unknowns (Gemini structured output, Voyage multimodal, limits, cost) | CLI that describes and embeds a file for real; fake adapters for everything after |
-| 2 | The queue design: claim, lease, reaper, retries, dedup race | Upload via curl → row goes pending → ready with units written |
-| 3 | Hybrid search: two paths, RRF, grouping, collection scope, paging | Search via curl returns ranked assets with snippets |
-| 4 | Search quality with real models; seed collection proves the assignment's queries | `make seed` + query matrix passes on the demo collection |
-| 5 | The interviewer's path through the UI | Full demo in the browser, locally |
-| 6 | Production shape: seed on start, volume, migrations at boot, README | Full manual checklist passes on the live URL |
-| 7 (optional) | Reranker, typo correction | Each behind a flag with one test and one matrix row |
+| 2 | Upload path: type sniffing, blob store, dedup race, the asset and collection API | Upload via curl → `pending` row, dedup returns the existing asset, files serve with cache headers |
+| 3 | The queue design: claim, lease, reaper, retries, transactional commit | Worker turns `pending` into `ready` with units written; kill it and the reaper recovers |
+| 4 | Hybrid search: two paths, RRF, grouping, collection scope, paging | Search via curl returns ranked assets with snippets |
+| 5 | Search quality with real models; seed collection proves the assignment's queries | `make seed` + `make matrix` passes on the demo collection |
+| 6 | The interviewer's path through the UI | Full demo in the browser, locally |
+| 7 | Production shape: seed on start, volume, migrations at boot, README | Full manual checklist passes on the live URL |
+| 8 (optional) | Reranker, typo correction | Each behind a flag with one test and one matrix row |
 
 Test numbers below refer to the test plan's numbered list. Test 5 is split: its "upload → worker → ready"
-half passes in Phase 2, its "absent from search while pending" half needs search and passes in Phase 3.
+half passes in Phase 3, its "absent from search while pending" half needs search and passes in Phase 4.
+Test 6 (dedup) needs no worker and passes in Phase 2.
 
 ---
 
@@ -183,84 +194,77 @@ is kept (useful to test the container locally) or only `db` (lighter).
 
 **Risk retired.** Whether Gemini Flash honours `response_schema` for our schema through the current SDK,
 whether Voyage multimodal-3.5 takes mixed text + image batches the way the design assumes, what the batch
-limits and rate limits are, what one image costs. None of this can be learned from our own code, and the
-answers shape the adapter interfaces everything else calls.
+limits and rate limits are, what one image costs, and whether the vendor SDKs retry transient errors on
+their own. None of this can be learned from our own code, and the answers shape the adapter interfaces
+everything else calls.
 
 **Build.**
 
 1. Throwaway scripts in `backend/spike/` (kept in git, not imported): describe one image and one text
    file with Gemini using the two prompts and the shared schema; embed a batch of text + image with Voyage;
-   print raw responses, token counts, timings. Record findings in the Phase log.
+   print raw responses, token counts, timings; provoke a 429 or a bad key and see what the SDK does with
+   it. Record findings in the Phase log. The spike's answer on retries decides how thin `ai/errors.py` is:
+   if the SDKs already back off on transient errors, the module is classification only; if not, tenacity
+   wraps the calls. The plan for step 3 is written after this step.
 2. `ai/schema.py`: the Pydantic metadata model and the normalisation layer (lowercase/dedupe tags, clamp
    lengths, truncate, `image_type` null for text).
-3. `ai/errors.py`: transient vs permanent classification; backoff with jitter via tenacity, honouring
-   `Retry-After`.
-4. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`,
-   `Reranker.rerank(query, candidates)` (no-op only for now).
+3. `ai/errors.py`: transient vs permanent classification; backoff with jitter (SDK or tenacity, per the
+   spike), honouring `Retry-After`.
+4. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
+   The `Reranker` interface arrives with search in Phase 4 (D16).
 5. Real adapters: `GeminiVision` (response_schema → validate → normalise → one repair retry → permanent
    error), `VoyageEmbedder` (batched, `input_type` query/document). Prompts live in `ai/prompts/`.
 6. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
    fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
    byte hash). Selected by `AI_PROVIDER`.
-7. A small CLI: `uv run kms-describe <file>` and `uv run kms-embed <file>...` print the result with either
-   provider.
+7. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
+   with either provider.
 
 **Tests that pass here.** Unit 3 (schema normalisation), unit 4 (error classification), plus an
 adapter-level live check (skipped without keys): real output validates, `visible_text` non-empty for a
 screenshot, and the cosine between the embeddings of "black hair" and "brunette" exceeds that of "black
-hair" and an unrelated sentence. The test plan's full live test 9 completes in Phase 4 once search exists.
+hair" and an unrelated sentence. The test plan's full live test 9 completes in Phase 5 once search exists.
 
-**Demo.** `uv run kms-describe seed-candidate.jpg` prints validated JSON with a title, tags and the
-visible text. The same with `AI_PROVIDER=fake` prints the fixture. `kms-embed` prints 1024-dim vectors and
+**Demo.** `uv run kms describe seed-candidate.jpg` prints validated JSON with a title, tags and the
+visible text. The same with `AI_PROVIDER=fake` prints the fixture. `kms embed` prints 1024-dim vectors and
 the batch timing.
 
 **Decisions to take.** Exact Gemini model id (current Flash). Output token limit for `visible_text`.
-Whether the repair retry re-sends the image (cost) or only the text. Anything the spike contradicts in the
-design.
+Whether the repair retry re-sends the image (cost) or only the text. SDK retries or tenacity (after
+step 1). Anything the spike contradicts in the design.
 
 ---
 
-## Phase 2 — Upload, storage, queue, worker (fake adapters)
+## Phase 2 — Upload, storage and the asset API
 
-**Risk retired.** The parts of the design that are ours alone and where a bug is silent: the claim query,
-the lease and reaper, the attempts cap, the dedup race, transactional commit of results. This is the phase
-the test plan calls out as the one that must show its work.
+**Risk retired.** Everything the API does at upload time, where a bug is silent: type sniffing, the
+content hash, the dedup lookup and its race against the unique index, the `NOTIFY` in the same
+transaction as the insert. This phase also fixes the shape that both the endpoint and the seeder share
+(D17), so the seed phase has nothing to reshape.
 
 **Build.**
 
 1. `blob/`: `BlobStore` interface, `LocalBlobStore` keyed by sha256 under `BLOB_DIR`.
-2. `POST /api/assets` (multipart, collection name, 10 MB cap): sniff type from bytes, sha256, store blob,
-   dedup lookup → `200 deduplicated` + alias append, else insert `pending` + `NOTIFY asset_pending` in the
-   same transaction → `202`. IntegrityError on the unique index is caught and treated as the dedup path.
-3. `GET /api/assets?collection=` (status, filename, aliases, error, metadata), `GET /api/assets/{id}`,
+2. `ingest/upload.py`: `upload(collection, filename, data) -> UploadResult` (D17): sniff type from bytes,
+   sha256, store blob, dedup lookup → existing asset + alias append, else insert `pending` +
+   `NOTIFY asset_pending` in the same transaction. IntegrityError on the unique index is caught and
+   treated as the dedup path. Pure service function: no FastAPI types, so the seeder can call it.
+3. `POST /api/assets` (multipart, collection name, 10 MB cap) wraps `upload()`: `200 deduplicated` or `202`.
+4. `GET /api/assets?collection=` (status, filename, aliases, error, metadata), `GET /api/assets/{id}`,
    `GET /api/assets/{id}/file` with `ETag = sha256` and the immutable cache headers,
-   `POST /api/assets/{id}/retry`, `GET /api/collections` (names + counts), `DELETE /api/collections/{name}`
-   (rows only, D13).
-4. `ingest/chunker.py`: recursive paragraph → sentence → word split, configurable target/max/overlap,
-   character offsets.
-5. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
-6. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
-   preprocess, describe, build units, embed in one batch, commit metadata + units + `ready` in one
-   transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up → back to
-   `pending` via the lease; `attempts = 3` → `failed` with the message). `reaper()` on startup and every
-   minute. Thread pool of `WORKER_THREADS` started from the app's startup hook; a `WORKER_ENABLED` flag so
-   tests and the demo can run the API with the worker off.
-7. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
-   loop. Wake-up triggers a claim; the timeout is the poll guarantee.
-8. Structured logging of every state transition with asset id, attempt and duration.
+   `POST /api/assets/{id}/retry` (resets `attempts` and `status`; the worker that consumes it comes in
+   Phase 3), `GET /api/collections` (names + counts), `DELETE /api/collections/{name}` (rows only, D13).
+5. `ingest/chunker.py`: recursive paragraph → sentence → word split, configurable target/max/overlap,
+   character offsets. A pure function with its own unit test; the worker in Phase 3 calls it.
 
-**Tests that pass here.** Unit 1 (chunker). Integration 5a (upload → worker → `ready`, units written, one
-per chunk plus metadata plus image unit). Integration 6 (dedup, alias, concurrent race → one row).
-Integration 7 (reaper resets stale `processing`, leaves fresh; third failure → `failed` with error; retry
-endpoint resets). Tests drive the worker with `run_once()` and set `started_at` directly in SQL for the
-lease case, so nothing depends on timing.
+**Tests that pass here.** Unit 1 (chunker). Integration 6 (dedup, alias, concurrent race → one row).
+An integration test of the upload service function (row is `pending`, blob is on disk, a `NOTIFY` was
+received on a listening connection) stands in for test 5 until the worker exists.
 
-**Demo.** With `AI_PROVIDER=fake` and `make dev`: `curl -F file=@a.txt -F collection=demo /api/assets`
-returns `202`; `GET /api/assets` shows `pending` then `ready` within a second; `psql` shows the units.
-Upload the same bytes as `b.txt`: `200 deduplicated`, alias present. Manual checklist items 5, 6, 7, 8
-run with curl and psql: worker off then on, kill mid-job then watch the reaper, force a permanent error
-with the fake adapter's invalid mode, fetch the file and inspect headers. Redeploy; the same curl sequence
-works on the live URL (fake adapters there too until Phase 4).
+**Demo.** With `make dev`: `curl -F file=@a.txt -F collection=demo /api/assets` returns `202` and
+`GET /api/assets` shows the row `pending`. Upload the same bytes as `b.txt`: `200 deduplicated`, alias
+present. Manual checklist item 8: fetch the file and inspect headers. Redeploy; the same curl sequence
+works on the live URL.
 
 **Decisions to take.** Whether a duplicate arriving while the first is `failed` should re-queue it
 (design says it returns the existing asset; suggest: yes, return it, user clicks retry). Maximum text file
@@ -268,7 +272,50 @@ size to accept as "text" and how binary sniffing decides.
 
 ---
 
-## Phase 3 — Search
+## Phase 3 — Worker and queue (fake adapters)
+
+**Risk retired.** The parts of the design that are ours alone: the claim query, the lease and reaper, the
+attempts cap, the transactional commit of results. This is the phase the test plan calls out as the one
+that must show its work.
+
+**Build.**
+
+1. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
+2. `ingest/summary_source.py` (D16): strategy with `WholeFile` (live), `Head` (live fallback, token
+   budget), `MapReduce` (stub raising `NotImplementedError` with the README note). Decides which text the
+   vision model sees; the chunker decides the content units independently.
+3. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
+   preprocess, describe via the summary source, build units, embed in one batch, commit metadata + units +
+   `ready` in one transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up →
+   back to `pending` via the lease; `attempts = 3` → `failed` with the message). `reaper()` on startup and
+   every minute.
+4. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
+   loop. Wake-up triggers a claim; the timeout is the poll guarantee.
+5. Two ways to run the pool (D19): the app's startup hook starts `WORKER_THREADS` threads when
+   `WORKER_ENABLED=true` (the default, and how the deployed container runs); `uv run kms worker` runs the
+   same pool as its own process for the checklist and as the scale path. Tests and `make dev` with the
+   worker off use the flag.
+6. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
+   commit, failure, reaper reset. Built here once; Phase 7 only checks it reads well in Railway's log view.
+
+**Tests that pass here.** Integration 5a (upload → worker → `ready`, units written, one per chunk plus
+metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
+`failed` with error; retry endpoint resets). Tests drive the worker with `run_once()` and set `started_at`
+directly in SQL for the lease case, so nothing depends on timing.
+
+**Demo.** With `AI_PROVIDER=fake`: upload, then `GET /api/assets` shows `pending` then `ready` within a
+second; `psql` shows the units. Manual checklist items 5, 6, 7 with curl and psql: API with
+`WORKER_ENABLED=false`, upload, start `kms worker` and watch it pick the file up; kill `kms worker`
+mid-job and watch the reaper; force a permanent error with the fake adapter's invalid mode, see `failed`
+with the message, retry. Redeploy; the live URL processes an upload end to end (fake adapters there too
+until Phase 5).
+
+**Decisions to take.** Whether the reaper interval and the lease length are settings or constants
+(config already has `lease_minutes`). Whether `kms worker` also runs the reaper (suggest: yes, same code path).
+
+---
+
+## Phase 4 — Search
 
 **Risk retired.** The hybrid merge is the second design-specific piece: two SQL paths run concurrently,
 RRF in Python, group by asset with best unit wins, collection scope, normalised score, paging without
@@ -282,11 +329,12 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
    and `embedding_model`, `hnsw.iterative_scan = relaxed_order`; same return shape.
 3. `search/fuse.py`: RRF (k = 60), group by asset (best unit wins, keep the unit's kind and offsets for
    the snippet), normalised score = best RRF / top RRF.
-4. `search/cache.py`: LRU keyed on `(embedding_model, normalised query)`.
-5. `search/service.py`: embed the query (cached) and run keyword concurrently with it (thread pool of 2),
-   fuse, group, no-op rerank, page `(offset, limit)` with cap 100, one final fetch of asset rows by id.
-   Snippet: the metadata unit's text for images, the best chunk's text for text files, with
-   `start_char`/`end_char`.
+4. `ai/`: the `Reranker` interface and its no-op implementation (D16); `VoyageReranker` stays in Phase 8.
+5. `search/service.py`: embed the query through a cached function (`functools.lru_cache`, size
+   `QUERY_CACHE_SIZE`, keyed on model + normalised query; no separate cache module) and run keyword
+   concurrently with it (thread pool of 2), fuse, group, no-op rerank, page `(offset, limit)` with cap 100,
+   one final fetch of asset rows by id. Snippet: the metadata unit's text for images, the best chunk's
+   text for text files, with `start_char`/`end_char`.
 6. `GET /api/search?collection=&q=&page=`.
 
 **Tests that pass here.** Unit 2 (RRF + grouping properties). Integration 5b (pending asset absent from
@@ -297,13 +345,13 @@ holds; a text hit points at the right chunk offsets; page 2 has no repeats).
 `curl "/api/search?collection=demo&q=..."` shows ranked assets, snippets with offsets, normalised scores
 and paging. Redeploy.
 
-**Decisions to take.** `plainto` vs `websearch` tsquery (the latter supports quoted phrases and `-word`).
-Text search configuration (`english`). RRF k. Whether the image unit's hit shows the description as its
-snippet.
+**Decisions to take.** `plainto` vs `websearch` tsquery (suggest `websearch`: quoted phrases and `-word`).
+Text search configuration (suggest `english`). RRF k (suggest 60). Whether the image unit's hit shows the
+description as its snippet.
 
 ---
 
-## Phase 4 — Real pipeline, seed collection, query matrix
+## Phase 5 — Real pipeline, seed collection, query matrix
 
 **Risk retired.** Everything so far proves the machinery; this phase proves the product claim, that the
 assignment's queries and their paraphrases find the right files with real models. It also fixes the seed
@@ -311,39 +359,44 @@ that the interviewer will see.
 
 **Build.**
 
-1. `ingest/summary_source.py`: strategy with `WholeFile` (live), `Head` (live fallback, token budget),
-   `MapReduce` (stub raising `NotImplementedError` with the README note).
-2. Wire `AI_PROVIDER=real` end to end; run one image and one text file through; read the metadata and
+1. Wire `AI_PROVIDER=real` end to end; run one image and one text file through; read the metadata and
    tune the two prompts until the fields are what search needs.
-3. `seed/demo/`: ~30 files built backwards from the query matrix (Unsplash/Pexels photos, own screenshots,
+2. `seed/demo/`: ~30 files built backwards from the query matrix (Unsplash/Pexels photos, own screenshots,
    one diagram, 8–10 hand-written text files that control literal vs implied). `seed/demo/README.md`
    lists each file, source, licence, and the queries it answers.
-4. `make seed`: walks `seed/<collection>/` and posts each file through the upload endpoint; idempotent by
-   dedup. The same code runs at container start when `SEED_ON_START=true` (used in Phase 6).
-5. `make matrix`: a script that runs every row of the query matrix against the API and prints, per row,
-   which must-hit files appeared and at what rank, and whether any must-not-hit file is on top. This is the
-   manual matrix made repeatable, not a pytest test, because its truth depends on the vendors.
+3. `seed/demo/matrix.json` (D18): one object per matrix row with `query`, `must_hit`, `must_also_hit`
+   and `must_not_top` file lists. The README's table is written from it, so the two cannot drift.
+4. `uv run kms seed [collection]` behind `make seed`: walks `seed/<collection>/` and calls the upload
+   service function (D17) for each file; idempotent by dedup. The same function runs from the app's
+   startup hook when `SEED_ON_START=true` (used in Phase 7).
+5. `uv run kms matrix --url <api>` behind `make matrix`: runs every row of `matrix.json` against the API
+   and prints, per row, which must-hit files appeared and at what rank, and whether any must-not-top file
+   is on top. This is the manual matrix made repeatable, not a pytest test, because its truth depends on
+   the vendors.
 
 **Tests that pass here.** Live 9 in full (skipped without keys): one image and one text file through real
 Gemini + Voyage, schema validates, `visible_text` non-empty for the screenshot, "black hair" finds the
 file that only says "brunette".
 
 **Demo.** `make seed` with real keys ingests the demo collection in under a minute; `make matrix` shows
-every row passing. Redeploy with real keys in Railway's env; `make matrix` against the live URL passes.
+every row passing. Redeploy with real keys in Railway's env; `make matrix --url` against the live URL
+passes.
 
 **Decisions to take.** Which photos (licence and credit lines). Token budget default. Whether tags are
-also written into the tsvector with a higher weight than description.
+also written into the tsvector with a higher weight than description. If yes, the generated column
+changes and that is migration 0002 (D11 allows it).
 
 ---
 
-## Phase 5 — Web UI
+## Phase 6 — Web UI
 
 **Risk retired.** The interviewer's path: create a collection, upload, watch statuses, search, read
 results. Low technical risk, but it is the surface everything is judged through, so it gets its own gate.
 
 **Build.**
 
-1. API client with typed responses (generated from FastAPI's OpenAPI or hand-written).
+1. Hand-written API client with typed responses, one function per endpoint (eight endpoints; a generator
+   would be more to explain than it saves).
 2. Collection selector with counts, "+ New collection", "Delete collection" with confirm.
 3. Upload area (multi-file, drag and drop), list with status badges, 2 s polling while anything is
    `pending`/`processing`, error text and Retry on `failed`.
@@ -363,7 +416,7 @@ detail view is a route or a drawer. Thumbnail sizing.
 
 ---
 
-## Phase 6 — Deployment hardening and demo readiness
+## Phase 7 — Deployment hardening and demo readiness
 
 **Risk retired.** The demo must not fail. Everything that only matters on the live instance: seed on first
 start, blobs on the volume across restarts, migrations at boot, logs you can read, README complete.
@@ -372,11 +425,11 @@ start, blobs on the volume across restarts, migrations at boot, logs you can rea
 
 1. `SEED_ON_START=true` on Railway; confirm reseed is a no-op on restart.
 2. Restart the service and confirm blobs survive on the volume and files still serve.
-3. Log lines for uploads, claims, commits, failures, searches with timings; confirm they read well in
-   Railway's log view.
+3. Read the Phase 3 log lines in Railway's log view for an upload, a search and a failure; fix wording
+   only if something does not read well.
 4. Health endpoint extended with pending/processing/failed counts.
 5. README: fill the TODOs (live URL, running locally, env vars, AI tools used), point to
-   `docs/TESTING.md` for the checklist.
+   `docs/TESTING.md` for the checklist, and state the deploy source that D21 settled on.
 6. Run the full manual checklist (items 1–9) on the live URL and record it in the Phase log.
 
 **Tests that pass here.** All of 1–9 remain green; nothing new.
@@ -384,12 +437,11 @@ start, blobs on the volume across restarts, migrations at boot, logs you can rea
 **Demo.** The live URL, cold: open it, pick the demo collection, run the matrix queries, create a new
 collection, upload, search. Ten minutes, the interviewer's script.
 
-**Decisions to take.** Whether to add a GitHub remote now and switch Railway to deploy from it (revisits
-D6/D9). Whether to add CI (the test plan's open item) once a remote exists.
+**Decisions to take.** Whether to add CI (the test plan's open item) if D21 gave us a remote.
 
 ---
 
-## Phase 7 — Optional, in this order
+## Phase 8 — Optional, in this order
 
 1. **Reranker**: `VoyageReranker` (rerank-2.5) behind `RERANK_ENABLED`, rescoring the first page by
    metadata-unit text. One unit test (order changes, candidate set does not) and one matrix row.
@@ -409,20 +461,22 @@ Each is its own gate; each can be skipped without touching anything else.
 | 4 Error classification | 1 |
 | Adapter-level live check (precursor to 9) | 1 |
 | 1 Chunker | 2 |
-| 5a Upload → worker → ready | 2 |
 | 6 Dedup + race | 2 |
-| 7 Lease reaper + attempts cap + retry | 2 |
-| 2 RRF merge + group-by-asset | 3 |
-| 5b Absent while pending, present when ready | 3 |
-| 8 Hybrid search properties | 3 |
-| 9 Live end to end | 4 |
-| Reranker / pg_trgm unit tests | 7 |
+| Upload service function → pending + NOTIFY (not in plan) | 2 |
+| 5a Upload → worker → ready | 3 |
+| 7 Lease reaper + attempts cap + retry | 3 |
+| 2 RRF merge + group-by-asset | 4 |
+| 5b Absent while pending, present when ready | 4 |
+| 8 Hybrid search properties | 4 |
+| 9 Live end to end | 5 |
+| Reranker / pg_trgm unit tests | 8 |
 
 | Manual checklist item | First run | Repeated on live |
 | --- | --- | --- |
-| 5 Worker off then on, 6 Kill mid-job, 7 Permanent error + retry, 8 File headers | 2 (curl/psql) | 6 |
-| 1 New collection, 2 Upload three, 3 Matrix queries, 4 Duplicate alias, 9 Delete collection | 5 (browser) | 6 |
-| Query matrix (`make matrix`) | 4 | 4, 6 |
+| 8 File headers | 2 (curl) | 7 |
+| 5 Worker off then on, 6 Kill mid-job, 7 Permanent error + retry | 3 (curl/psql, `kms worker`) | 7 |
+| 1 New collection, 2 Upload three, 3 Matrix queries, 4 Duplicate alias, 9 Delete collection | 6 (browser) | 7 |
+| Query matrix (`make matrix`) | 5 | 5, 7 |
 
 ---
 
@@ -446,3 +500,9 @@ _Appended at each gate: date, deviations from the plan, decisions taken._
   Railway region: default (not chosen explicitly). No GitHub remote yet (D9).
 - **Gate.** `make test` green (2 tests). Container verified locally and on Railway. Demo run by Michael, tagged
   `phase-0` on Sep 24, 2026.
+
+### Plan revision — Sep 25, 2026
+
+Phases 1–7 reviewed against the design and the Phase 0 skeleton before Phase 1 started. Decisions D15–D20
+taken, D21 opened. The former Phase 2 became Phases 2 and 3; everything after is renumbered by one. No code
+changed except the Makefile comments that named the seed phase.

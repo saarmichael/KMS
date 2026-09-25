@@ -44,3 +44,11 @@ functions, no surprise dependencies.
 - Explicit over implicit. No hidden magic that a reader cannot trace from the call site.
 - Comments say why, not what. The plan already says what.
 - Follow the existing layout and naming; nothing new gets its own convention.
+
+## Michael's additions
+
+`docs/michael-additions.md` lists every design-level idea that Michael brought and that was kept: things
+added on top of Claude's proposal, or chosen against it. Tiny edits (a name, a wording) do not count;
+design choices do. Claude keeps the list: whenever such an idea is accepted, the entry is written in the
+same step, with the date, the phase, what Michael proposed, what Claude had proposed instead (if
+anything), and why Michael's version was kept. The list is one of the things Michael presents.
