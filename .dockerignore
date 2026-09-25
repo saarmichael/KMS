@@ -1,0 +1,4 @@
+# The build context is the repo root. Keep secrets and local-only folders out of the image.
+**/.env
+backend/spike/
+backend/.venv/
