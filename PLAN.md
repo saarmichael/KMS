@@ -51,6 +51,13 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D32 | Search paging | `page` (from 1) + `has_more`, page size 20, no total count; a page past the end is empty, not an error | decided (Sep 26) |
 | D33 | Error body | Always `{"detail": string}`; one exception handler flattens FastAPI's 422 list into a string | decided (Sep 26) |
 | D34 | Response models and TS types | Both hand-written from `docs/api-contract.md`; nothing generated | decided (Sep 26) |
+| D35 | Duplicate of a `failed` asset | Returned as it is, still `failed`; the user clicks Retry. Upload never changes an existing asset's state | decided (Sep 26) |
+| D36 | Accepted upload types | Images: JPEG, PNG, WebP, detected by Pillow reading the header. Text: strict UTF-8 (BOM allowed), no NUL bytes, no limit beyond the 10 MB cap. Empty file and anything else → `415` | decided (Sep 26) |
+| D37 | Text files served with a charset | `Content-Type: text/plain; charset=utf-8`; contract §6.4 amended | decided (Sep 26) |
+| D38 | `NOTIFY` on retry | Retry sends `NOTIFY asset_pending` in its transaction, like upload | decided (Sep 26) |
+| D39 | Collection name validation | At the API only (query, form and path patterns); `upload()` trusts its caller | decided (Sep 26) |
+| D40 | Dedup mechanism | `INSERT … ON CONFLICT (collection, sha256) DO NOTHING RETURNING *`; no row back = duplicate. Replaces lookup + catch `IntegrityError`; design doc amended | decided (Sep 26) |
+| D41 | Chunker out of Phase 2 | Deferred; where it lands and its size units (chars or tokens) are discussed later. Michael's addition | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -71,8 +78,9 @@ key, Voyage API key, Railway account. GitHub repo: D21.
 Only then does the next phase of the same track start (see Tracks below). If a phase reveals that the design
 is wrong, the design doc is changed first, then the plan, then the code.
 
-**Inside a phase.** Claude lists the steps, then does them one at a time. Each step ends in a small commit
-(`phase-N: <what>`) with tests green. Michael reviews diffs at his own pace; a question that needs his call
+**Inside a phase.** Claude lists the steps, then does them one at a time. Each step ends with tests green
+and the changes left unstaged; Michael reviews the diff and commits it himself (`phase-N: <what>`), see
+"Stages and commits" in `CLAUDE.md`. A question that needs his call
 is asked before the step that depends on it, never answered by assumption. Claude explains anything about
 the stack that is new to Michael in the message that introduces it.
 
@@ -293,18 +301,17 @@ transaction as the insert. This phase also fixes the shape that both the endpoin
 
 1. `blob/`: `BlobStore` interface, `LocalBlobStore` keyed by sha256 under `BLOB_DIR`.
 2. `ingest/upload.py`: `upload(collection, filename, data) -> UploadResult` (D17): sniff type from bytes,
-   sha256, store blob, dedup lookup → existing asset + alias append, else insert `pending` +
-   `NOTIFY asset_pending` in the same transaction. IntegrityError on the unique index is caught and
-   treated as the dedup path. Pure service function: no FastAPI types, so the seeder can call it.
+   sha256, store blob, insert `pending` with `ON CONFLICT DO NOTHING` (D40) + `NOTIFY asset_pending` in
+   the same transaction; no row back → existing asset + alias append. Pure service function: no FastAPI
+   types, so the seeder can call it.
 3. `POST /api/assets` (multipart, collection name, 10 MB cap) wraps `upload()`: `200 deduplicated` or `202`.
 4. `GET /api/assets?collection=` (status, filename, aliases, error, metadata), `GET /api/assets/{id}`,
    `GET /api/assets/{id}/file` with `ETag = sha256` and the immutable cache headers,
    `POST /api/assets/{id}/retry` (resets `attempts` and `status`; the worker that consumes it comes in
    Phase 3), `GET /api/collections` (names + counts), `DELETE /api/collections/{name}` (rows only, D13).
-5. `ingest/chunker.py`: recursive paragraph → sentence → word split, configurable target/max/overlap,
-   character offsets. A pure function with its own unit test; the worker in Phase 3 calls it.
+5. ~~`ingest/chunker.py`~~: deferred by D41, to be placed when it is discussed.
 
-**Tests that pass here.** Unit 1 (chunker). Integration 6 (dedup, alias, concurrent race → one row).
+**Tests that pass here.** Integration 6 (dedup, alias, concurrent race → one row). (Unit 1, the chunker, moved out by D41.)
 An integration test of the upload service function (row is `pending`, blob is on disk, a `NOTIFY` was
 received on a listening connection) stands in for test 5 until the worker exists.
 
@@ -313,9 +320,7 @@ received on a listening connection) stands in for test 5 until the worker exists
 present. Manual checklist item 8: fetch the file and inspect headers. Redeploy; the same curl sequence
 works on the live URL.
 
-**Decisions to take.** Whether a duplicate arriving while the first is `failed` should re-queue it
-(design says it returns the existing asset; suggest: yes, return it, user clicks retry). Maximum text file
-size to accept as "text" and how binary sniffing decides.
+**Decisions taken.** D35–D41 (Sep 26), from the phase plan.
 
 ---
 
@@ -572,7 +577,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | Test (test plan) | Phase |
 | --- | --- |
 | Smoke: health through test client (not in plan) | 0 |
-| 1 Chunker | 2 |
+| 1 Chunker | deferred (D41) |
 | 6 Dedup + race | 2 |
 | Upload service function → pending + NOTIFY (not in plan) | 2 |
 | 3 Schema normalisation | 3 |

@@ -32,6 +32,14 @@ functions, no surprise dependencies.
 - Do not add helpers, files, dependencies or settings that the plan did not name.
 - Every new construct that Michael has not met before is explained in the message that introduces it.
 
+## Stages and commits
+
+- Once a part's plan is approved, Claude may implement the whole part in one go. A big part is split into
+  stages in its plan; each stage is approved before its code starts.
+- Claude never commits. Claude leaves every change unstaged in the working tree and stops; Michael reviews
+  the diff and commits it himself.
+- The next part or stage starts only after Michael says so, even when its plan is already approved.
+
 ## Code style
 
 - One responsibility per function, but no function sprawl: split when a function does two things, not
