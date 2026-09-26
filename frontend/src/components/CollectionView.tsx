@@ -9,7 +9,10 @@
 //     SearchResults is removed, aborting its request in the background
 //   <CollectionFiles collection onCollectionChanged>   (files, uploads, retries) stays mounted the whole
 //     time and is only hidden during a search, so leaving a search needs no reload
+//   a tile or a result card -> handleOpen(asset, snippet, query) -> `detail` state -> <AssetDetailDialog>
 import { useCallback, useState } from 'react'
+import type { Asset, Snippet } from '../api/types'
+import AssetDetailDialog from './AssetDetailDialog'
 import CollectionFiles from './CollectionFiles'
 import SearchBar from './SearchBar'
 import SearchResults from './SearchResults'
@@ -24,9 +27,18 @@ type ActiveSearch = {
   id: number
 }
 
+// The file shown in the detail dialog; `snippet` and `query` are set when it was opened from a search
+// result, so the dialog can mark what matched.
+type OpenDetail = {
+  asset: Asset
+  snippet: Snippet | null
+  query: string | null
+}
+
 export default function CollectionView({ collection, onCollectionChanged }: CollectionViewProps) {
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null)
   const [searching, setSearching] = useState(false)
+  const [detail, setDetail] = useState<OpenDetail | null>(null)
 
   // Every search gets a new id. Used as the results' key, it gives each search a fresh component:
   // page 1, nothing left over, and a late answer from an earlier search is dropped with the old one.
@@ -44,6 +56,10 @@ export default function CollectionView({ collection, onCollectionChanged }: Coll
   // function across renders; useCallback with no dependencies keeps it so.
   const handleFirstPageDone = useCallback(() => setSearching(false), [])
 
+  function handleOpen(asset: Asset, snippet: Snippet | null, query: string | null) {
+    setDetail({ asset, snippet, query })
+  }
+
   return (
     <div className="space-y-6">
       <SearchBar
@@ -59,13 +75,26 @@ export default function CollectionView({ collection, onCollectionChanged }: Coll
           query={activeSearch.query}
           onBack={() => setActiveSearch(null)}
           onFirstPageDone={handleFirstPageDone}
+          onOpen={handleOpen}
         />
       )}
       {/* Hidden rather than removed during a search: the list and its polling keep running, so the
           files are back the moment the search ends. */}
       <div className={activeSearch ? 'hidden' : ''}>
-        <CollectionFiles collection={collection} onCollectionChanged={onCollectionChanged} />
+        <CollectionFiles
+          collection={collection}
+          onCollectionChanged={onCollectionChanged}
+          onOpen={(asset) => handleOpen(asset, null, null)}
+        />
       </div>
+      {detail && (
+        <AssetDetailDialog
+          asset={detail.asset}
+          snippet={detail.snippet}
+          query={detail.query}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   )
 }

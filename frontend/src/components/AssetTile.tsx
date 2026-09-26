@@ -4,27 +4,33 @@
 // How data reaches it:
 //   CollectionFiles `assets` state -> <AssetTile asset> -> title, filename, aliases, description, tags, status
 //   Retry button -> handleRetry() -> onRetry(id) (CollectionFiles.handleRetry -> retryAsset())
+//   a click anywhere else on the tile -> onOpen(asset) -> the detail dialog
 import { useState } from 'react'
+import type { MouseEvent } from 'react'
 import { ApiError, assetFileUrl } from '../api/client'
 import type { Asset } from '../api/types'
 import { formatAge, formatBytes } from '../format'
+import FileActions from './FileActions'
 import { DocumentIcon, RetryIcon } from './icons'
 import StatusBadge from './StatusBadge'
 
 type AssetTileProps = {
   asset: Asset
   onRetry: (id: string) => Promise<void>
+  onOpen: (asset: Asset) => void
 }
 
 const TAGS_SHOWN = 4
 
-export default function AssetTile({ asset, onRetry }: AssetTileProps) {
+export default function AssetTile({ asset, onRetry, onOpen }: AssetTileProps) {
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
 
   // ---- Talks to the API -------------------------------------------------------------------
 
-  async function handleRetry() {
+  // stopPropagation keeps the click on Retry from also opening the tile's dialog.
+  async function handleRetry(event: MouseEvent) {
+    event.stopPropagation()
     setRetrying(true)
     setRetryError(null)
     try {
@@ -42,7 +48,10 @@ export default function AssetTile({ asset, onRetry }: AssetTileProps) {
   const title = metadata ? metadata.title : asset.filename
 
   return (
-    <li className="flex gap-4 rounded-xl bg-white p-3 shadow-xs ring-1 ring-gray-200">
+    <li
+      onClick={() => onOpen(asset)}
+      className="flex cursor-pointer gap-4 rounded-xl bg-white p-3 shadow-xs ring-1 ring-gray-200 transition-shadow hover:shadow-md hover:ring-gray-300"
+    >
       {asset.asset_type === 'image' ? (
         // The file endpoint serves the original; CSS scales it into the square.
         <img
@@ -58,7 +67,13 @@ export default function AssetTile({ asset, onRetry }: AssetTileProps) {
 
       <div className="min-w-0 flex-1 py-1">
         <div className="flex items-start gap-3">
-          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">{title}</h3>
+          {/* A real button, so the keyboard can reach the tile; the click bubbles up to the tile. */}
+          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
+            <button type="button" className="max-w-full truncate text-left hover:text-indigo-700">
+              {title}
+            </button>
+          </h3>
+          <FileActions asset={asset} compact />
           <StatusBadge status={asset.status} />
         </div>
 

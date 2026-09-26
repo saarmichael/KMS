@@ -547,6 +547,8 @@ top of each file.
 | F6 | Asset list layout | One column of full-width tiles: thumbnail on the left, details on the right, status in the corner; not a table of rows, not a multi-column grid | decided (Sep 27) |
 | F7 | Where search lives | A wide search box at the top of the main area; submitting replaces the upload box and file tiles with the results, "Back to all files" returns | decided (Sep 27) |
 | F8 | How closeness is shown | No dimming: every result, thumbnail and snippet stays fully visible. A coloured bar on each result card's left edge, strong indigo for close matches down to light grey for far ones | decided (Sep 27) |
+| F9 | Asset detail view | A large centred modal (`<dialog>`) over the page; closing returns to the list or results as they were | decided (Sep 27) |
+| F10 | Open in a new tab and Download | Plain links to the file endpoint (`target="_blank"`, `download`). They do not work under the mocks (MSW never handles page navigations; the proxy answers 502) and work against the real API | decided (Sep 27) |
 
 ---
 

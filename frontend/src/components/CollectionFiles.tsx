@@ -8,6 +8,7 @@
 //     -> `notices` state -> <UploadNotices>   (refused files and duplicates)
 //     -> listAssets() again, and onCollectionChanged() so the collection counts reload
 //   <AssetTile onRetry> -> handleRetry() -> retryAsset() -> the returned asset replaces the old one
+//   <AssetTile onOpen> -> onOpen(asset), passed up to CollectionView, which shows the detail dialog
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, listAssets, retryAsset, uploadAsset } from '../api/client'
 import type { Asset } from '../api/types'
@@ -21,11 +22,12 @@ import type { UploadNotice } from './UploadNotices'
 type CollectionFilesProps = {
   collection: string
   onCollectionChanged: () => void
+  onOpen: (asset: Asset) => void
 }
 
 const POLL_INTERVAL_MS = 2000
 
-export default function CollectionFiles({ collection, onCollectionChanged }: CollectionFilesProps) {
+export default function CollectionFiles({ collection, onCollectionChanged, onOpen }: CollectionFilesProps) {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [uploadingCount, setUploadingCount] = useState(0)
@@ -156,7 +158,7 @@ export default function CollectionFiles({ collection, onCollectionChanged }: Col
         </p>
         <ul className="space-y-3">
           {assets.map((asset) => (
-            <AssetTile key={asset.id} asset={asset} onRetry={handleRetry} />
+            <AssetTile key={asset.id} asset={asset} onRetry={handleRetry} onOpen={onOpen} />
           ))}
         </ul>
       </>

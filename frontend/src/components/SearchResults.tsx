@@ -7,9 +7,10 @@
 //     -> <SearchResultCard result query> for each result
 //   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
 //   Cancel (in the search box) removes this component; the effect cleanup aborts the running request
+//   <SearchResultCard onOpen> -> onOpen(asset, snippet, query), passed up to CollectionView's detail dialog
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, search } from '../api/client'
-import type { SearchResult } from '../api/types'
+import type { Asset, SearchResult, Snippet } from '../api/types'
 import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
 import SearchResultCard from './SearchResultCard'
 import StatusMessage from './StatusMessage'
@@ -19,11 +20,12 @@ type SearchResultsProps = {
   query: string
   onBack: () => void
   onFirstPageDone: () => void
+  onOpen: (asset: Asset, snippet: Snippet, query: string) => void
 }
 
 const PLACEHOLDER_CARDS = 3
 
-export default function SearchResults({ collection, query, onBack, onFirstPageDone }: SearchResultsProps) {
+export default function SearchResults({ collection, query, onBack, onFirstPageDone, onOpen }: SearchResultsProps) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
@@ -161,7 +163,7 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
 
       <ul className="space-y-3">
         {results.map((result) => (
-          <SearchResultCard key={result.asset.id} result={result} query={query} />
+          <SearchResultCard key={result.asset.id} result={result} query={query} onOpen={onOpen} />
         ))}
       </ul>
 
