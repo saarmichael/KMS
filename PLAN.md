@@ -528,6 +528,8 @@ Thumbnail sizing.
 
 | # | Decision | Value | Status |
 | --- | --- | --- | --- |
+| F1 | How mocks are served | MSW (Mock Service Worker): handlers answer `/api/...` in the browser at the network level, so the real client code runs unchanged against them | decided (Sep 26) |
+| F2 | Switching between mocks and the real API | `npm run dev` always uses the real API; `npm run dev:mock` sets `VITE_MOCK_API=true` and starts the mocks. Mocks never enter the production bundle and stay after Phase 5 | decided (Sep 26) |
 
 ---
 
