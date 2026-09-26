@@ -42,6 +42,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D23 | Vision model fallback | `VISION_MODELS` is an ordered JSON list of Gemini model ids, older models only for price, default `["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]`. Every call starts at the first. Overloaded (503, or a 429 for that model's quota) → next model at once, no backoff; backoff only after the whole list answered overloaded. Any other error fails at once. The answering model is stored in the new `assets.vision_model` column (migration 0002, D11). No fallback for embeddings: vectors from two models are not comparable. Michael's addition | decided (Sep 25) |
 | D24 | Retries on vendor errors | SDK retries off on both clients; `ai/errors.py` uses tenacity. It honours Gemini's `RetryInfo.retryDelay` when present, else backs off ~1 s, 4 s, 16 s with jitter. Chosen after the spike showed neither SDK waits as long as the server asks | decided (Sep 26) |
 | D25 | Gemini thinking | Lowest thinking level on every describe call: the spike measured 554 thinking tokens against 140 answer tokens on a short note | decided (Sep 26) |
+| D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–3. The last step of Phase 3 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings are committed to git, so tests and demos on a fresh clone or on Railway replay them. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -241,8 +242,8 @@ the batch timing.
 
 **Decisions to take.** Exact Gemini model id (current Flash). Output token limit for `visible_text`.
 Whether the repair retry re-sends the image (cost) or only the text. SDK retries or tenacity (after
-step 1). Anything the spike contradicts in the design. Where `AI_CACHE_DIR` defaults to, and whether the
-demo collection's recorded responses are committed so a fresh clone replays them (settled in Phase 5).
+step 1). Anything the spike contradicts in the design. Where `AI_CACHE_DIR` defaults to (recordings are
+committed, D26).
 
 ---
 
@@ -308,6 +309,9 @@ that must show its work.
    worker off use the flag.
 6. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
    commit, failure, reaper reset. Built here once; Phase 7 only checks it reads well in Railway's log view.
+7. Record the collection (D26): with `AI_PROVIDER=real` and recording on, upload every file of
+   `seed/demo/` (as designed by Michael so far) and let the worker process it. Commit the recordings.
+   Until the collection exists, the spike's note and single screenshot are the only real files.
 
 **Tests that pass here.** Integration 5a (upload → worker → `ready`, units written, one per chunk plus
 metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
@@ -372,7 +376,8 @@ that the interviewer will see.
 
 1. Wire `AI_PROVIDER=real` end to end; run one image and one text file through; read the metadata and
    tune the two prompts until the fields are what search needs.
-2. `seed/demo/`: ~30 files built backwards from the query matrix (Unsplash/Pexels photos, own screenshots,
+2. `seed/demo/` finalised (designed by Michael during Phases 2–3, recorded in Phase 3, D26): ~30 files built
+   backwards from the query matrix (Unsplash/Pexels photos, own screenshots,
    one diagram, 8–10 hand-written text files that control literal vs implied). `seed/demo/README.md`
    lists each file, source, licence, and the queries it answers.
 3. `seed/demo/matrix.json` (D18): one object per matrix row with `query`, `must_hit`, `must_also_hit`
