@@ -41,7 +41,7 @@ def blob_store(tmp_path):
 
 
 @pytest.fixture
-def client(db):
+def client(db, blob_store):
     from kms.main import create_app
 
     with TestClient(create_app()) as c:

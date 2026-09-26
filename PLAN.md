@@ -688,3 +688,21 @@ D26 recording. The former Phases 4–8 are now 5–9. No code changed except the
   and accepted are in `docs/claude-recommendations.md`.
 - **Deviations.** The Phase 5 question on the image unit's snippet is settled here (the description).
 - **Gate.** Michael read the contract and approved it. Committed on `main`; frontend worktree set up.
+
+### Phase 2 — Sep 27, 2026
+
+- **Built.** `blob/` (`BlobStore` ABC, `LocalBlobStore` with atomic writes), `ingest/upload.py` (`sniff`, `upload()` with
+  `ON CONFLICT` dedup, alias append in one `UPDATE`, `pg_notify` with the asset id), `db.notify_asset_pending`, the
+  asset and collection API (`api/schemas.py`, `api/assets.py`, `api/collections.py`) and the 422 handler that
+  flattens `detail` to one string. Worked on branch `phase-2`.
+- **Deviations.** The chunker moved out of the phase (D41), together with unit test 1. Dedup uses
+  `INSERT … ON CONFLICT DO NOTHING` instead of catching `IntegrityError` (D40; design doc amended). Added on the way:
+  a decompression bomb is a `415`; any filename that is not header-safe (not only non-ASCII) uses
+  `filename*=utf-8''…`; `.gitignore` ignores `data/` at any depth, since blobs land in `backend/data/blobs`. Doc
+  references removed from code comments, including Phase 0's.
+- **Decisions taken.** D35–D41. Working agreement changed in `CLAUDE.md`: Claude never commits (Michael reviews and
+  commits), a big part is split into approved stages, and comments never refer to the docs.
+- **Gate.** `make test` green (32 tests). Local demo run by Claude on a real uvicorn server against the dev database;
+  live demo run by Michael on the Railway URL after `railway up`: `202` then `200 deduplicated` with the alias, the
+  file served from the volume with `ETag` and `immutable` cache headers. Committed and pushed on branch `phase-2`;
+  merge to `main` and the `phase-2` tag pending.
