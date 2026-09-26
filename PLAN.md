@@ -40,6 +40,8 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D21 | GitHub remote and deploy source | The interviewer reads the code on GitHub, and the design doc says Railway deploys from GitHub. Whether to add the remote now and switch Railway to it, or keep `railway up` until Phase 7 | **open — Michael's call, asked now rather than in Phase 7** |
 | D22 | Recorded vendor responses | The real adapters are wrapped by a record/replay layer keyed on model, prompt version and input hash, one JSON file per call under `AI_CACHE_DIR`; fakes stay the test default. Michael's addition, see `docs/michael-additions.md` | decided (Sep 25) |
 | D23 | Vision model fallback | `VISION_MODELS` is an ordered JSON list of Gemini model ids, older models only for price, default `["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]`. Every call starts at the first. Overloaded (503, or a 429 for that model's quota) → next model at once, no backoff; backoff only after the whole list answered overloaded. Any other error fails at once. The answering model is stored in the new `assets.vision_model` column (migration 0002, D11). No fallback for embeddings: vectors from two models are not comparable. Michael's addition | decided (Sep 25) |
+| D24 | Retries on vendor errors | SDK retries off on both clients; `ai/errors.py` uses tenacity. It honours Gemini's `RetryInfo.retryDelay` when present, else backs off ~1 s, 4 s, 16 s with jitter. Chosen after the spike showed neither SDK waits as long as the server asks | decided (Sep 26) |
+| D25 | Gemini thinking | Lowest thinking level on every describe call: the spike measured 554 thinking tokens against 140 answer tokens on a short note | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -544,3 +546,6 @@ Scripts in `backend/spike/`; raw responses in `backend/spike/out/` (git-ignored)
 - **SDK retries.** Both SDKs retry when asked (Gemini `HttpRetryOptions`, off by default; Voyage `max_retries`,
   0 by default). Neither honours the server's wait: Gemini gave up after ~8.6 s against a 33 s `retryDelay`;
   Voyage after ~4.5 s against a one-minute window.
+- **Billing (Sep 26).** Voyage with a payment method: six back-to-back calls all succeed, the 3-per-minute limit
+  is gone. Gemini with billing but no prepaid credit answers `402` "Your prepayment credits are depleted" on
+  every model. A 402 is permanent and applies to the whole project, so D23 must not fall over on it.
