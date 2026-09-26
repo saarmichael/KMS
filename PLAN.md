@@ -713,5 +713,5 @@ D26 recording. The former Phases 4–8 are now 5–9. No code changed except the
   commits), a big part is split into approved stages, and comments never refer to the docs.
 - **Gate.** `make test` green (32 tests). Local demo run by Claude on a real uvicorn server against the dev database;
   live demo run by Michael on the Railway URL after `railway up`: `202` then `200 deduplicated` with the alias, the
-  file served from the volume with `ETag` and `immutable` cache headers. Committed and pushed on branch `phase-2`;
-  merge to `main` and the `phase-2` tag pending.
+  file served from the volume with `ETag` and `immutable` cache headers. Merged to `main` and tagged `phase-2` on
+  Sep 27, 2026.
