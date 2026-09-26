@@ -58,6 +58,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D39 | Collection name validation | At the API only (query, form and path patterns); `upload()` trusts its caller | decided (Sep 26) |
 | D40 | Dedup mechanism | `INSERT … ON CONFLICT (collection, sha256) DO NOTHING RETURNING *`; no row back = duplicate. Replaces lookup + catch `IntegrityError`; design doc amended | decided (Sep 26) |
 | D41 | Chunker out of Phase 2 | Built at the end of Phase 3, its last step; its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
+| D42 | An asset is found by its kind | A query naming a kind of asset ("picture", "document") finds assets of that kind even when no content mentions it. Our code, not the model, adds fixed type tags to `assets.tags`, taken from `asset_type` and `image_type`: every image: `image`, `picture`; by `image_type`: photo → `photo`, `photograph`; screenshot → `screenshot`; document → `document`, `scan`; diagram → `diagram`, `drawing`; every text file: `text`, `text file`, `document`. Merged with the model's tags and deduped; visible in the API like any tag. Tested in Phase 5 (integration) and Phase 6 (two matrix rows). Michael's addition | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -334,7 +335,8 @@ that must show its work. The adapter interfaces are designed here, against the w
 **Build.**
 
 1. `ai/schema.py`: the Pydantic metadata model and the normalisation layer (lowercase/dedupe tags, clamp
-   lengths, truncate, `image_type` null for text).
+   lengths, truncate, `image_type` null for text). Normalisation also adds the fixed type tags (D42) from
+   `asset_type` and `image_type`; how they interact with the tag-count cap is settled in the part's plan.
 2. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
    The `Reranker` interface arrives with search in Phase 5 (D16).
 3. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
@@ -449,7 +451,9 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
 
 **Tests that pass here.** Unit 2 (RRF + grouping properties). Integration 5b (pending asset absent from
 search, present once `ready`). Integration 8 (both-path hit outranks single-path hits; collection scope
-holds; a text hit points at the right chunk offsets; page 2 has no repeats).
+holds; a text hit points at the right chunk offsets; page 2 has no repeats). Integration test of D42: in a
+collection with no picture- or document-related content, "picture" ranks the images first and "document"
+ranks the text files first.
 
 **Demo.** Seed a few hand-written text files and two images with the fake provider, then
 `curl "/api/search?collection=demo&q=..."` shows ranked assets, snippets with offsets, normalised scores
@@ -477,6 +481,8 @@ that the interviewer will see.
    lists each file, source, licence, and the queries it answers.
 3. `seed/demo/matrix.json` (D18): one object per matrix row with `query`, `must_hit`, `must_also_hit`
    and `must_not_top` file lists. The README's table is written from it, so the two cannot drift.
+   Two rows prove D42 with real models: "picture" tops with images, "document" tops with documents and
+   text files.
 4. `uv run kms seed [collection]` behind `make seed`: walks `seed/<collection>/` and calls the upload
    service function (D17) for each file; idempotent by dedup. The same function runs from the app's
    startup hook when `SEED_ON_START=true` (used in Phase 8).
@@ -590,6 +596,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | 2 RRF merge + group-by-asset | 5 |
 | 5b Absent while pending, present when ready | 5 |
 | 8 Hybrid search properties | 5 |
+| Found by kind: "picture" → images, "document" → text files (D42, not in plan) | 5 |
 | 9 Live end to end | 6 |
 | Reranker / pg_trgm unit tests | 9 |
 
