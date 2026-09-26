@@ -1,0 +1,21 @@
+# Claude's recommendations
+
+The complement of `michael-additions.md`: design-level choices that Claude proposed and Michael accepted
+as proposed, without changing or challenging them. Kept by Claude as the working agreement in `CLAUDE.md`
+says. An entry here is still Michael's decision; the list shows which ones rest on Claude's reasoning, so
+they can be read, and questioned, before they are presented. Newest last. Backfilled from Sep 25, 2026
+(the start of Phase 1); earlier decisions are in the decision log in `PLAN.md`.
+
+| Date | Phase | Decision | Claude's reasoning | Alternative Claude weighed | Recorded in |
+| --- | --- | --- | --- | --- | --- |
+| Sep 25, 2026 | 1 | A `.dockerignore` keeps `**/.env`, `backend/spike/` and `backend/.venv/` out of the image | The build context is the repo root and the Dockerfile copies `backend/` whole, so a local build would bake the API keys into the image | Relying on `railway up` following `.gitignore` (does not cover `make build`) | commit b5cac25 |
+| Sep 25, 2026 | 1 | `VISION_MODELS` is written as a JSON list in the environment | Pydantic settings parses JSON lists with no code of ours | A comma-separated string with our own parser | D23 |
+| Sep 25, 2026 | 1 | Fallback rules: only 503 and a per-model 429 move to the next model; move at once, no backoff; every call starts at the first model; the answering model is stored in `assets.vision_model` | Other errors would fail on every model; moving at once is the point of the list; stateless is simpler across worker threads; the stored model explains differences between descriptions | Backoff on each model first; remembering overloaded models for a cooldown | D23, design doc |
+| Sep 25, 2026 | 1 | The `-latest` Gemini aliases are left out of the model list | Google repoints them to newer models, so price and behaviour change without notice | Including them as a last resort | D23 |
+| Sep 26, 2026 | 1 | A `402` (prepaid credit depleted) is permanent and does not trigger the model fallback | It applies to the whole project, so every model would answer the same | Treating it like an overload | Phase log, spike findings |
+| Sep 26, 2026 | 1 | Retries through tenacity with SDK retries off; honour Gemini's `retryDelay`, else ~1 s, 4 s, 16 s with jitter | The spike showed neither SDK waits as long as the server asks | The SDKs' built-in retries | D24 |
+| Sep 26, 2026 | 1 | Lowest Gemini thinking level on every describe call | The spike measured 554 thinking tokens against 140 answer tokens, billed as output | The model's default thinking | D25 |
+| Sep 26, 2026 | 1 | Recordings are committed to git | Tests and demos on a fresh clone or on Railway need them to replay | Keeping them local, re-recording per machine | D26 |
+| Sep 26, 2026 | 1 | Tags may be multi-word phrases ("travel notes"); inner whitespace is collapsed | Phrases read better and still match through the keyword index | Splitting phrases into single words | Phase 3 part 1 plan (schema) |
+| Sep 26, 2026 | 1 | Schema design: one Pydantic class is both Gemini's response schema and the validator; normalising never fails and only tidies valid output; limits are module constants, not settings; truncation is a plain character cut; an image with no type becomes "other" | One definition cannot drift; malformed output should reach the repair retry, not be hidden; nobody tunes these per deployment; word-boundary cuts are code for a case that almost never happens; a missing type is not worth a repair retry | A separate JSON schema; fixing malformed output; settings; word-boundary truncation; rejecting a missing type | Phase 3 part 1 plan (schema) |
+| Sep 26, 2026 | 1 | Schema limits: title 200 characters, description 2,000, visible text 20,000, one tag 60, tags 20 per image and 15 per text file | Visible text sized so a dense screenshot is never cut; the rest follow the design's ranges with room to spare | None weighed; values accepted as proposed | Phase 3 part 1 plan (schema) |

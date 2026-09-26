@@ -1,7 +1,8 @@
 # Michael's additions
 
 Design-level ideas that Michael brought and that were kept, on top of or against Claude's proposal.
-Kept by Claude as the working agreement in `CLAUDE.md` says. Newest last.
+Kept by Claude as the working agreement in `CLAUDE.md` says. Newest last. The complement, choices taken on
+Claude's advice as proposed, is `claude-recommendations.md`.
 
 | Date | Phase | Michael proposed | Claude had proposed | Why Michael's version was kept |
 | --- | --- | --- | --- | --- |

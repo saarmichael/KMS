@@ -52,3 +52,12 @@ added on top of Claude's proposal, or chosen against it. Tiny edits (a name, a w
 design choices do. Claude keeps the list: whenever such an idea is accepted, the entry is written in the
 same step, with the date, the phase, what Michael proposed, what Claude had proposed instead (if
 anything), and why Michael's version was kept. The list is one of the things Michael presents.
+
+## Claude's recommendations
+
+`docs/claude-recommendations.md` is the complement of the additions list: every design-level choice that
+Claude proposed and Michael accepted as proposed, without changing or challenging it. A default value
+accepted without discussion counts; a choice Michael changed or brought himself goes to the additions list
+instead, never to both. Claude writes the entry in the same step as the decision, with the date, the
+phase, the decision, Claude's reasoning, the alternative weighed, and where it is recorded (a D-number, a
+plan, a commit).
