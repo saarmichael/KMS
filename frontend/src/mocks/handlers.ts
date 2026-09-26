@@ -1,5 +1,5 @@
-// One MSW handler per endpoint of docs/api-contract.md (6.1-6.8). Each one waits, reads its
-// inputs, and hands them to the fake backend in store.ts.
+// One MSW handler per API endpoint. Each one waits, reads its inputs, and hands them to the fake
+// backend in store.ts.
 import { delay, http, HttpResponse } from 'msw'
 import * as store from './store'
 import type { MockResponse } from './store'
@@ -15,6 +15,12 @@ function toHttpResponse(response: MockResponse) {
 }
 
 export const handlers = [
+  http.get('/api/search', async ({ request }) => {
+    await delay(LATENCY_MS)
+    const params = new URL(request.url).searchParams
+    return toHttpResponse(await store.search(params.get('collection'), params.get('q'), params.get('page')))
+  }),
+
   http.post('/api/assets', async ({ request }) => {
     await delay(LATENCY_MS)
     const form = await request.formData()
@@ -32,7 +38,7 @@ export const handlers = [
     return toHttpResponse(store.getAsset(String(params.id)))
   }),
 
-  // The file answers with raw bytes and the contract's headers (§6.4), not JSON.
+  // The file answers with raw bytes and caching headers, not JSON.
   http.get('/api/assets/:id/file', async ({ params }) => {
     await delay(LATENCY_MS)
     const response = store.getFile(String(params.id))
@@ -64,9 +70,4 @@ export const handlers = [
     return toHttpResponse(store.deleteCollection(String(params.name)))
   }),
 
-  http.get('/api/search', async ({ request }) => {
-    await delay(LATENCY_MS)
-    const params = new URL(request.url).searchParams
-    return toHttpResponse(await store.search(params.get('collection'), params.get('q'), params.get('page')))
-  }),
 ]

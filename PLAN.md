@@ -524,12 +524,25 @@ request-intercepting library). When and how the client switches from mocks to th
 direction (minimal, one accent colour is the suggestion). Whether the detail view is a route or a drawer.
 Thumbnail sizing.
 
+**How the frontend code is written** (Michael, Sep 27, 2026). The code is simple to understand: plain React
+(state in `App`, props and callbacks down, one component per file), no clever abstractions. The app itself
+looks polished: styled components rather than bare browser controls. Comments only explain what the code
+does; they never refer to this plan, decision numbers, parts or contract sections.
+Code that sends or receives data comes first in its file: the endpoint functions at the top of the API
+client and of the mock store, the functions that call the API right after the state in a component, under
+a "Talks to the API" divider. A component that loads data starts with a short comment drawing the flow
+(request → state → props → what draws it), so the path of a query and its results can be followed from the
+top of each file.
+
 **Frontend decisions** (F-numbers, kept here by the frontend session):
 
 | # | Decision | Value | Status |
 | --- | --- | --- | --- |
 | F1 | How mocks are served | MSW (Mock Service Worker): handlers answer `/api/...` in the browser at the network level, so the real client code runs unchanged against them | decided (Sep 26) |
 | F2 | Switching between mocks and the real API | `npm run dev` always uses the real API; `npm run dev:mock` sets `VITE_MOCK_API=true` and starts the mocks. Mocks never enter the production bundle and stay after Phase 5 | decided (Sep 26) |
+| F3 | Visual direction | Minimal: neutral greys, one accent colour, Tailwind's indigo | decided (Sep 27) |
+| F4 | Collection selector | Top bar with a dropdown (names and counts), "+ New" and "Delete" next to it | decided (Sep 27) |
+| F5 | Where the selected collection lives | React state (`useState`) only; a reload goes back to the default, a new collection without uploads is lost on reload (contract §3) | decided (Sep 27) |
 
 ---
 

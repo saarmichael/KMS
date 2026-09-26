@@ -1,10 +1,10 @@
-// Hand-written from docs/api-contract.md (D34). Section numbers refer to that file.
+// The JSON shapes the API sends and receives.
 
 export type AssetStatus = 'pending' | 'processing' | 'ready' | 'failed'
 
 export type ImageType = 'photo' | 'screenshot' | 'document' | 'diagram' | 'other'
 
-// §5: null on the asset until status is "ready".
+// The AI-written description of an asset. It is null on the asset until status is "ready".
 export type AssetMetadata = {
   title: string
   description: string
@@ -14,7 +14,7 @@ export type AssetMetadata = {
   vision_model: string | null
 }
 
-// §5: the one shape returned by upload, list, detail, retry and search.
+// One uploaded file. Upload, list, detail, retry and search all return this same shape.
 export type Asset = {
   id: string
   collection: string
@@ -29,19 +29,18 @@ export type Asset = {
   metadata: AssetMetadata | null
 }
 
-// §6.6
 export type Collection = {
   name: string
   asset_count: number
 }
 
-// §6.1
+// deduplicated is true when the collection already held these exact bytes.
 export type UploadResponse = {
   deduplicated: boolean
   asset: Asset
 }
 
-// §6.8
+// Why a search result matched: a passage of a text file (with its position) or the asset's description.
 export type Snippet = {
   kind: 'metadata' | 'content' | 'image'
   text: string

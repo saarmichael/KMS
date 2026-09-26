@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
-// F2: only `npm run dev:mock` sets the flag. The dynamic import keeps MSW out of the production bundle.
+// Only `npm run dev:mock` sets the flag. The dynamic import keeps MSW out of the production bundle.
 async function startMocksIfEnabled() {
   if (import.meta.env.VITE_MOCK_API !== 'true') {
     return
