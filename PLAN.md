@@ -57,7 +57,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D38 | `NOTIFY` on retry | Retry sends `NOTIFY asset_pending` in its transaction, like upload | decided (Sep 26) |
 | D39 | Collection name validation | At the API only (query, form and path patterns); `upload()` trusts its caller | decided (Sep 26) |
 | D40 | Dedup mechanism | `INSERT … ON CONFLICT (collection, sha256) DO NOTHING RETURNING *`; no row back = duplicate. Replaces lookup + catch `IntegrityError`; design doc amended | decided (Sep 26) |
-| D41 | Chunker out of Phase 2 | Deferred; where it lands and its size units (chars or tokens) are discussed later. Michael's addition | decided (Sep 26) |
+| D41 | Chunker out of Phase 2 | Built at the end of Phase 3, its last step; its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -309,7 +309,7 @@ transaction as the insert. This phase also fixes the shape that both the endpoin
    `GET /api/assets/{id}/file` with `ETag = sha256` and the immutable cache headers,
    `POST /api/assets/{id}/retry` (resets `attempts` and `status`; the worker that consumes it comes in
    Phase 3), `GET /api/collections` (names + counts), `DELETE /api/collections/{name}` (rows only, D13).
-5. ~~`ingest/chunker.py`~~: deferred by D41, to be placed when it is discussed.
+5. ~~`ingest/chunker.py`~~: moved to the end of Phase 3 by D41.
 
 **Tests that pass here.** Integration 6 (dedup, alias, concurrent race → one row). (Unit 1, the chunker, moved out by D41.)
 An integration test of the upload service function (row is `pending`, blob is on disk, a `NOTIFY` was
@@ -358,6 +358,8 @@ that must show its work. The adapter interfaces are designed here, against the w
    worker off use the flag.
 9. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
    commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
+10. `ingest/chunker.py` (D41), the last step: recursive paragraph → sentence → word split, configurable
+    target/max/overlap, character offsets; unit test 1. Size units (chars or tokens) decided in its plan.
 
 **Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
 metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
@@ -577,7 +579,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | Test (test plan) | Phase |
 | --- | --- |
 | Smoke: health through test client (not in plan) | 0 |
-| 1 Chunker | deferred (D41) |
+| 1 Chunker | 3, last step (D41) |
 | 6 Dedup + race | 2 |
 | Upload service function → pending + NOTIFY (not in plan) | 2 |
 | 3 Schema normalisation | 3 |
