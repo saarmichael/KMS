@@ -51,6 +51,8 @@ functions, no surprise dependencies.
   so that reading the code feels like reading a description of what it does.
 - Explicit over implicit. No hidden magic that a reader cannot trace from the call site.
 - Comments say why, not what. The plan already says what.
+- A comment explains the code that follows it, in its own words. It never refers to the docs: no design
+  doc sections, no D-numbers, no phases. A reader of the code must not need another file to follow it.
 - Follow the existing layout and naming; nothing new gets its own convention.
 
 ## Michael's additions

@@ -1,7 +1,7 @@
 """Where file bytes live, keyed by their sha256.
 
-The interface exists so that an S3-compatible store can replace the local volume later
-(design doc, Deployment) without touching the code that stores or serves files.
+The interface lets another store (an S3-compatible bucket, for example) replace the local
+folder without touching the code that stores or serves files.
 """
 
 import os

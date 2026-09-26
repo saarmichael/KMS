@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 from kms import db as kms_db
+from kms.blob import set_blob_store
+from kms.blob.store import LocalBlobStore
 from kms.config import get_settings
 from kms.migrations import upgrade_head
 
@@ -27,6 +29,15 @@ def db(test_engine):
     with test_engine.begin() as conn:
         conn.execute(text("TRUNCATE search_units, assets"))
     yield test_engine
+
+
+@pytest.fixture
+def blob_store(tmp_path):
+    """A blob store on a fresh temporary folder, so tests never write into BLOB_DIR."""
+    store = LocalBlobStore(tmp_path / "blobs")
+    set_blob_store(store)
+    yield store
+    set_blob_store(None)
 
 
 @pytest.fixture
