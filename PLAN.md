@@ -32,17 +32,18 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D13 | Blob deletion | Out of scope. Deleting a collection deletes its DB rows only; blobs stay on the volume (immutable by hash, harmless). Noted in README | decided |
 | D14 | Phase gate | Defined in "How we work" below | decided |
 | D15 | Phase split | The former Phase 2 (upload + queue) is two phases: Phase 2 is everything the API does at upload time, Phase 3 is everything the worker does. Every phase after that is renumbered by one | decided (Sep 25) |
-| D16 | Code lives in the phase of its first caller | Summary source with the worker (Phase 3, not the seed phase); the `Reranker` interface with search (Phase 4, not the adapters); structured logging built once in Phase 3, only verified in Phase 7 | decided (Sep 25) |
+| D16 | Code lives in the phase of its first caller | Summary source with the worker (Phase 3, not the seed phase); the `Reranker` interface with search (Phase 5, not the adapters); structured logging built once in Phase 3, only verified in Phase 8 | decided (Sep 25) |
 | D17 | Upload is a service function | `ingest.upload(collection, filename, bytes)` holds the upload logic; the `POST /api/assets` endpoint wraps it and the seeder calls it directly. Seeding at container start runs before the server accepts requests, so it cannot go over HTTP | decided (Sep 25) |
 | D18 | Query matrix is data | `seed/demo/matrix.json` holds the matrix rows (query, must hit, must also hit, must not top); `make matrix` reads it; the seed README renders the same rows as prose | decided (Sep 25) |
 | D19 | Worker runs standalone too | `uv run kms worker` runs the same thread pool as its own process. The API still starts the pool by default (`WORKER_ENABLED=true`); the command is for the manual checklist (stop the worker, kill it mid-job) and is the scale path the design names (a second container) | decided (Sep 25, Claude's pick) |
 | D20 | One CLI entry point | Everything is a subcommand of `kms`: `describe`, `embed`, `worker`, `seed`, `matrix`. No separate console scripts | decided (Sep 25) |
-| D21 | GitHub remote and deploy source | The interviewer reads the code on GitHub, and the design doc says Railway deploys from GitHub. Whether to add the remote now and switch Railway to it, or keep `railway up` until Phase 7 | **open — Michael's call, asked now rather than in Phase 7** |
+| D21 | GitHub remote and deploy source | The interviewer reads the code on GitHub, and the design doc says Railway deploys from GitHub. Whether to add the remote now and switch Railway to it, or keep `railway up` until Phase 8 | **open — Michael's call, asked now rather than in Phase 8** |
 | D22 | Recorded vendor responses | The real adapters are wrapped by a record/replay layer keyed on model, prompt version and input hash, one JSON file per call under `AI_CACHE_DIR`; fakes stay the test default. Michael's addition, see `docs/michael-additions.md` | decided (Sep 25) |
 | D23 | Vision model fallback | `VISION_MODELS` is an ordered JSON list of Gemini model ids, older models only for price, default `["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]`. Every call starts at the first. Overloaded (503, or a 429 for that model's quota) → next model at once, no backoff; backoff only after the whole list answered overloaded. Any other error fails at once. The answering model is stored in the new `assets.vision_model` column (migration 0002, D11). No fallback for embeddings: vectors from two models are not comparable. Michael's addition | decided (Sep 25) |
 | D24 | Retries on vendor errors | SDK retries off on both clients; `ai/errors.py` uses tenacity. It honours Gemini's `RetryInfo.retryDelay` when present, else backs off ~1 s, 4 s, 16 s with jitter. Chosen after the spike showed neither SDK waits as long as the server asks | decided (Sep 26) |
 | D25 | Gemini thinking | Lowest thinking level on every describe call: the spike measured 554 thinking tokens against 140 answer tokens on a short note | decided (Sep 26) |
-| D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–3. The last step of Phase 3 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings are committed to git, so tests and demos on a fresh clone or on Railway replay them. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26) |
+| D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–4. The last step of Phase 4 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings are committed to git, so tests and demos on a fresh clone or on Railway replay them. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26; moved from Phase 3 to 4 by D27) |
+| D27 | AI adapters get their own phase, after the worker | Phase 1 is the vendor spike only. The schema, the `Vision`/`Embedder` interfaces and the fakes move to Phase 3, where the worker is their first caller; the plumbing (upload, DB, worker) is built and demoed on hand-written fixture metadata. The real adapters, `ai/errors.py`, the record/replay layer, migration 0002, `kms describe`/`kms embed` and the D26 recording become Phase 4, built against a running worker. The former Phases 4–8 become 5–9. Michael's addition | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -135,17 +136,18 @@ KMS/
 | Phase | Risk retired | Ends with |
 | --- | --- | --- |
 | 0 | Environment, toolchain, platform (can Railway run our container, Postgres, volume, LISTEN/NOTIFY?) | Hello-world app on a live URL, `make test` green |
-| 1 | Vendor unknowns (Gemini structured output, Voyage multimodal, limits, cost) | CLI that describes and embeds a file for real; fake adapters for everything after |
+| 1 | Vendor unknowns (Gemini structured output, Voyage multimodal, limits, cost, SDK retries) | Findings in the Phase log; model list, retries and thinking decided (D23–D25) |
 | 2 | Upload path: type sniffing, blob store, dedup race, the asset and collection API | Upload via curl → `pending` row, dedup returns the existing asset, files serve with cache headers |
-| 3 | The queue design: claim, lease, reaper, retries, transactional commit | Worker turns `pending` into `ready` with units written; kill it and the reaper recovers |
-| 4 | Hybrid search: two paths, RRF, grouping, collection scope, paging | Search via curl returns ranked assets with snippets |
-| 5 | Search quality with real models; seed collection proves the assignment's queries | `make seed` + `make matrix` passes on the demo collection |
-| 6 | The interviewer's path through the UI | Full demo in the browser, locally |
-| 7 | Production shape: seed on start, volume, migrations at boot, README | Full manual checklist passes on the live URL |
-| 8 (optional) | Reranker, typo correction | Each behind a flag with one test and one matrix row |
+| 3 | The queue design: claim, lease, reaper, retries, transactional commit; the adapter interfaces and fakes | Worker turns `pending` into `ready` with fixture metadata and units written; kill it and the reaper recovers |
+| 4 | Our code around the vendors: validation and repair, model fallback, backoff, record/replay | An uploaded file gets real metadata through the worker; the demo collection is recorded and committed |
+| 5 | Hybrid search: two paths, RRF, grouping, collection scope, paging | Search via curl returns ranked assets with snippets |
+| 6 | Search quality with real models; seed collection proves the assignment's queries | `make seed` + `make matrix` passes on the demo collection |
+| 7 | The interviewer's path through the UI | Full demo in the browser, locally |
+| 8 | Production shape: seed on start, volume, migrations at boot, README | Full manual checklist passes on the live URL |
+| 9 (optional) | Reranker, typo correction | Each behind a flag with one test and one matrix row |
 
 Test numbers below refer to the test plan's numbered list. Test 5 is split: its "upload → worker → ready"
-half passes in Phase 3, its "absent from search while pending" half needs search and passes in Phase 4.
+half passes in Phase 3, its "absent from search while pending" half needs search and passes in Phase 5.
 Test 6 (dedup) needs no worker and passes in Phase 2.
 
 ---
@@ -195,13 +197,13 @@ is kept (useful to test the container locally) or only `db` (lighter).
 
 ---
 
-## Phase 1 — Vendor spike and adapters
+## Phase 1 — Vendor spike
 
 **Risk retired.** Whether Gemini Flash honours `response_schema` for our schema through the current SDK,
 whether Voyage multimodal-3.5 takes mixed text + image batches the way the design assumes, what the batch
 limits and rate limits are, what one image costs, and whether the vendor SDKs retry transient errors on
-their own. None of this can be learned from our own code, and the answers shape the adapter interfaces
-everything else calls.
+their own. None of this can be learned from our own code, and the answers shape the adapters built in
+Phase 4 (D27).
 
 **Build.**
 
@@ -211,39 +213,15 @@ everything else calls.
    it. List the Flash models the key can see, and record which error a model under high demand returns
    (D23). Record findings in the Phase log. The spike's answer on retries decides how thin `ai/errors.py` is:
    if the SDKs already back off on transient errors, the module is classification only; if not, tenacity
-   wraps the calls. The plan for step 3 is written after this step.
-2. `ai/schema.py`: the Pydantic metadata model and the normalisation layer (lowercase/dedupe tags, clamp
-   lengths, truncate, `image_type` null for text).
-3. `ai/errors.py`: transient vs permanent classification; backoff with jitter (SDK or tenacity, per the
-   spike), honouring `Retry-After`.
-4. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
-   The `Reranker` interface arrives with search in Phase 4 (D16).
-5. Real adapters: `GeminiVision` (response_schema → validate → normalise → one repair retry → permanent
-   error; on an overloaded answer it moves to the next id in `VISION_MODELS` and reports which model
-   answered, D23; migration 0002 adds `assets.vision_model`), `VoyageEmbedder` (batched, `input_type` query/document). Prompts live in `ai/prompts/`.
-6. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of
-   model, prompt version and input; one JSON file per call under `AI_CACHE_DIR`. Hit → the stored
-   response; miss → the vendor, then store. An empty setting turns it off. Fakes stay the test default;
-   recording makes the live test, the matrix and the demo repeatable and free after the first run.
-7. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
-   fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
-   byte hash). Selected by `AI_PROVIDER`.
-8. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
-   with either provider.
+   wraps the calls.
 
-**Tests that pass here.** Unit 3 (schema normalisation), unit 4 (error classification), plus an
-adapter-level live check (skipped without keys): real output validates, `visible_text` non-empty for a
-screenshot, and the cosine between the embeddings of "black hair" and "brunette" exceeds that of "black
-hair" and an unrelated sentence. The test plan's full live test 9 completes in Phase 5 once search exists.
+**Tests that pass here.** None new: nothing in `src/` changes, `make test` stays green.
 
-**Demo.** `uv run kms describe seed-candidate.jpg` prints validated JSON with a title, tags and the
-visible text. The same with `AI_PROVIDER=fake` prints the fixture. `kms embed` prints 1024-dim vectors and
-the batch timing.
+**Demo.** Michael runs the three spike scripts (commands in `backend/spike/README.md`) and reads the
+findings in the Phase log against their output.
 
-**Decisions to take.** Exact Gemini model id (current Flash). Output token limit for `visible_text`.
-Whether the repair retry re-sends the image (cost) or only the text. SDK retries or tenacity (after
-step 1). Anything the spike contradicts in the design. Where `AI_CACHE_DIR` defaults to (recordings are
-committed, D26).
+**Decisions to take.** Exact Gemini model id (D23). SDK retries or tenacity (D24). Anything the spike
+contradicts in the design.
 
 ---
 
@@ -288,32 +266,38 @@ size to accept as "text" and how binary sniffing decides.
 
 **Risk retired.** The parts of the design that are ours alone: the claim query, the lease and reaper, the
 attempts cap, the transactional commit of results. This is the phase the test plan calls out as the one
-that must show its work.
+that must show its work. The adapter interfaces are designed here, against the worker that calls them
+(D27); the real adapters behind them come in Phase 4.
 
 **Build.**
 
-1. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
-2. `ingest/summary_source.py` (D16): strategy with `WholeFile` (live), `Head` (live fallback, token
+1. `ai/schema.py`: the Pydantic metadata model and the normalisation layer (lowercase/dedupe tags, clamp
+   lengths, truncate, `image_type` null for text).
+2. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
+   The `Reranker` interface arrives with search in Phase 5 (D16).
+3. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
+   fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
+   byte hash). Selected by `AI_PROVIDER`. The fixture dict holds hand-written metadata for the files the
+   demo uploads, so the whole pipeline runs on static data until Phase 4.
+4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
+5. `ingest/summary_source.py` (D16): strategy with `WholeFile` (live), `Head` (live fallback, token
    budget), `MapReduce` (stub raising `NotImplementedError` with the README note). Decides which text the
    vision model sees; the chunker decides the content units independently.
-3. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
+6. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
    preprocess, describe via the summary source, build units, embed in one batch, commit metadata + units +
    `ready` in one transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up →
    back to `pending` via the lease; `attempts = 3` → `failed` with the message). `reaper()` on startup and
    every minute.
-4. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
+7. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
    loop. Wake-up triggers a claim; the timeout is the poll guarantee.
-5. Two ways to run the pool (D19): the app's startup hook starts `WORKER_THREADS` threads when
+8. Two ways to run the pool (D19): the app's startup hook starts `WORKER_THREADS` threads when
    `WORKER_ENABLED=true` (the default, and how the deployed container runs); `uv run kms worker` runs the
    same pool as its own process for the checklist and as the scale path. Tests and `make dev` with the
    worker off use the flag.
-6. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
-   commit, failure, reaper reset. Built here once; Phase 7 only checks it reads well in Railway's log view.
-7. Record the collection (D26): with `AI_PROVIDER=real` and recording on, upload every file of
-   `seed/demo/` (as designed by Michael so far) and let the worker process it. Commit the recordings.
-   Until the collection exists, the spike's note and single screenshot are the only real files.
+9. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
+   commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
 
-**Tests that pass here.** Integration 5a (upload → worker → `ready`, units written, one per chunk plus
+**Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
 metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
 `failed` with error; retry endpoint resets). Tests drive the worker with `run_once()` and set `started_at`
 directly in SQL for the lease case, so nothing depends on timing.
@@ -323,14 +307,61 @@ second; `psql` shows the units. Manual checklist items 5, 6, 7 with curl and psq
 `WORKER_ENABLED=false`, upload, start `kms worker` and watch it pick the file up; kill `kms worker`
 mid-job and watch the reaper; force a permanent error with the fake adapter's invalid mode, see `failed`
 with the message, retry. Redeploy; the live URL processes an upload end to end (fake adapters there too
-until Phase 5).
+until Phase 6).
 
 **Decisions to take.** Whether the reaper interval and the lease length are settings or constants
 (config already has `lease_minutes`). Whether `kms worker` also runs the reaper (suggest: yes, same code path).
+How tags are normalised: the spike saw multi-word tags ("travel notes") and outside knowledge added by the
+model. Whether `describe` already returns the answering model's id here (the fakes would name themselves),
+so the interface does not change when D23 arrives in Phase 4.
 
 ---
 
-## Phase 4 — Search
+## Phase 4 — AI adapters
+
+**Risk retired.** Our own code around the vendors, which the spike could not test: validation and the
+repair retry, the move to the next model on an overloaded answer, backoff that waits as long as the server
+asks, and whether record/replay really hits on a second run. Built after the worker (D27), so every piece
+is exercised by its real caller: upload a file and read Gemini's metadata back from the asset API.
+
+**Build.**
+
+1. `ai/errors.py` (D24): transient vs permanent classification; tenacity backoff with jitter, honouring
+   Gemini's `RetryInfo.retryDelay`. SDK retries off on both clients.
+2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate → normalise →
+   one repair retry → permanent error; lowest thinking level, D25; on an overloaded answer it moves to the
+   next id in `VISION_MODELS` and reports which model answered, D23), `VoyageEmbedder` (batched,
+   `input_type` query/document). Prompts live in `ai/prompts/`. `VISION_MODELS` replaces the single
+   `VISION_MODEL` setting.
+3. Migration 0002 adds `assets.vision_model`; the worker writes the answering model with the metadata.
+4. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of
+   model, prompt version and input; one JSON file per call under `AI_CACHE_DIR`. Hit → the stored
+   response; miss → the vendor, then store. An empty setting turns it off. Fakes stay the test default;
+   recording makes the live test, the matrix and the demo repeatable and free after the first run.
+5. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
+   with either provider. A debugging tool next to the worker, not the adapters' only caller.
+6. Record the collection (D26): with `AI_PROVIDER=real` and recording on, upload every file of
+   `seed/demo/` (as designed by Michael so far) and let the worker process it. Commit the recordings.
+   Until the collection exists, the spike's note and single screenshot are the only real files.
+
+**Tests that pass here.** Unit 4 (error classification), plus an adapter-level live check (skipped without
+keys): real output validates, `visible_text` non-empty for a screenshot, and the cosine between the
+embeddings of "black hair" and "brunette" exceeds that of "black hair" and an unrelated sentence. The test
+plan's full live test 9 completes in Phase 6 once search exists.
+
+**Demo.** With `AI_PROVIDER=real` and recording on: upload the spike's screenshot with curl, and
+`GET /api/assets` shows it `ready` with a real title, tags, the visible text and the model that answered.
+Empty the tables and upload it again: the same metadata comes back from the recordings, with no vendor
+call in the log. `uv run kms describe <file>` prints validated JSON; with `AI_PROVIDER=fake` it prints the
+fixture. `kms embed` prints 1024-dim vectors and the batch timing. Redeploy so migration 0002 runs at
+boot; the live URL stays on fake adapters until Phase 6.
+
+**Decisions to take.** Output token limit for `visible_text`. Whether the repair retry re-sends the image
+(cost) or only the text. Where `AI_CACHE_DIR` defaults to (recordings are committed, D26).
+
+---
+
+## Phase 5 — Search
 
 **Risk retired.** The hybrid merge is the second design-specific piece: two SQL paths run concurrently,
 RRF in Python, group by asset with best unit wins, collection scope, normalised score, paging without
@@ -344,7 +375,7 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
    and `embedding_model`, `hnsw.iterative_scan = relaxed_order`; same return shape.
 3. `search/fuse.py`: RRF (k = 60), group by asset (best unit wins, keep the unit's kind and offsets for
    the snippet), normalised score = best RRF / top RRF.
-4. `ai/`: the `Reranker` interface and its no-op implementation (D16); `VoyageReranker` stays in Phase 8.
+4. `ai/`: the `Reranker` interface and its no-op implementation (D16); `VoyageReranker` stays in Phase 9.
 5. `search/service.py`: embed the query through a cached function (`functools.lru_cache`, size
    `QUERY_CACHE_SIZE`, keyed on model + normalised query; no separate cache module) and run keyword
    concurrently with it (thread pool of 2), fuse, group, no-op rerank, page `(offset, limit)` with cap 100,
@@ -366,7 +397,7 @@ description as its snippet.
 
 ---
 
-## Phase 5 — Real pipeline, seed collection, query matrix
+## Phase 6 — Real pipeline, seed collection, query matrix
 
 **Risk retired.** Everything so far proves the machinery; this phase proves the product claim, that the
 assignment's queries and their paraphrases find the right files with real models. It also fixes the seed
@@ -376,7 +407,7 @@ that the interviewer will see.
 
 1. Wire `AI_PROVIDER=real` end to end; run one image and one text file through; read the metadata and
    tune the two prompts until the fields are what search needs.
-2. `seed/demo/` finalised (designed by Michael during Phases 2–3, recorded in Phase 3, D26): ~30 files built
+2. `seed/demo/` finalised (designed by Michael during Phases 2–4, recorded in Phase 4, D26): ~30 files built
    backwards from the query matrix (Unsplash/Pexels photos, own screenshots,
    one diagram, 8–10 hand-written text files that control literal vs implied). `seed/demo/README.md`
    lists each file, source, licence, and the queries it answers.
@@ -384,7 +415,7 @@ that the interviewer will see.
    and `must_not_top` file lists. The README's table is written from it, so the two cannot drift.
 4. `uv run kms seed [collection]` behind `make seed`: walks `seed/<collection>/` and calls the upload
    service function (D17) for each file; idempotent by dedup. The same function runs from the app's
-   startup hook when `SEED_ON_START=true` (used in Phase 7).
+   startup hook when `SEED_ON_START=true` (used in Phase 8).
 5. `uv run kms matrix --url <api>` behind `make matrix`: runs every row of `matrix.json` against the API
    and prints, per row, which must-hit files appeared and at what rank, and whether any must-not-top file
    is on top. This is the manual matrix made repeatable, not a pytest test, because its truth depends on
@@ -400,11 +431,11 @@ passes.
 
 **Decisions to take.** Which photos (licence and credit lines). Token budget default. Whether tags are
 also written into the tsvector with a higher weight than description. If yes, the generated column
-changes and that is migration 0002 (D11 allows it).
+changes and that is migration 0003 (D11 allows it).
 
 ---
 
-## Phase 6 — Web UI
+## Phase 7 — Web UI
 
 **Risk retired.** The interviewer's path: create a collection, upload, watch statuses, search, read
 results. Low technical risk, but it is the surface everything is judged through, so it gets its own gate.
@@ -432,7 +463,7 @@ detail view is a route or a drawer. Thumbnail sizing.
 
 ---
 
-## Phase 7 — Deployment hardening and demo readiness
+## Phase 8 — Deployment hardening and demo readiness
 
 **Risk retired.** The demo must not fail. Everything that only matters on the live instance: seed on first
 start, blobs on the volume across restarts, migrations at boot, logs you can read, README complete.
@@ -457,7 +488,7 @@ collection, upload, search. Ten minutes, the interviewer's script.
 
 ---
 
-## Phase 8 — Optional, in this order
+## Phase 9 — Optional, in this order
 
 1. **Reranker**: `VoyageReranker` (rerank-2.5) behind `RERANK_ENABLED`, rescoring the first page by
    metadata-unit text. One unit test (order changes, candidate set does not) and one matrix row.
@@ -473,26 +504,26 @@ Each is its own gate; each can be skipped without touching anything else.
 | Test (test plan) | Phase |
 | --- | --- |
 | Smoke: health through test client (not in plan) | 0 |
-| 3 Schema normalisation | 1 |
-| 4 Error classification | 1 |
-| Adapter-level live check (precursor to 9) | 1 |
 | 1 Chunker | 2 |
 | 6 Dedup + race | 2 |
 | Upload service function → pending + NOTIFY (not in plan) | 2 |
+| 3 Schema normalisation | 3 |
 | 5a Upload → worker → ready | 3 |
 | 7 Lease reaper + attempts cap + retry | 3 |
-| 2 RRF merge + group-by-asset | 4 |
-| 5b Absent while pending, present when ready | 4 |
-| 8 Hybrid search properties | 4 |
-| 9 Live end to end | 5 |
-| Reranker / pg_trgm unit tests | 8 |
+| 4 Error classification | 4 |
+| Adapter-level live check (precursor to 9) | 4 |
+| 2 RRF merge + group-by-asset | 5 |
+| 5b Absent while pending, present when ready | 5 |
+| 8 Hybrid search properties | 5 |
+| 9 Live end to end | 6 |
+| Reranker / pg_trgm unit tests | 9 |
 
 | Manual checklist item | First run | Repeated on live |
 | --- | --- | --- |
-| 8 File headers | 2 (curl) | 7 |
-| 5 Worker off then on, 6 Kill mid-job, 7 Permanent error + retry | 3 (curl/psql, `kms worker`) | 7 |
-| 1 New collection, 2 Upload three, 3 Matrix queries, 4 Duplicate alias, 9 Delete collection | 6 (browser) | 7 |
-| Query matrix (`make matrix`) | 5 | 5, 7 |
+| 8 File headers | 2 (curl) | 8 |
+| 5 Worker off then on, 6 Kill mid-job, 7 Permanent error + retry | 3 (curl/psql, `kms worker`) | 8 |
+| 1 New collection, 2 Upload three, 3 Matrix queries, 4 Duplicate alias, 9 Delete collection | 7 (browser) | 8 |
+| Query matrix (`make matrix`) | 6 | 6, 8 |
 
 ---
 
@@ -554,3 +585,9 @@ Scripts in `backend/spike/`; raw responses in `backend/spike/out/` (git-ignored)
 - **Billing (Sep 26).** Voyage with a payment method: six back-to-back calls all succeed, the 3-per-minute limit
   is gone. Gemini with billing but no prepaid credit answers `402` "Your prepayment credits are depleted" on
   every model. A 402 is permanent and applies to the whole project, so D23 must not fall over on it.
+
+### Plan revision — Sep 26, 2026
+
+D27: Phase 1 is the spike only. The adapter code it held moved out: the schema, interfaces and fakes to Phase 3
+(the worker is their first caller), everything that talks to a real vendor to a new Phase 4, together with the
+D26 recording. The former Phases 4–8 are now 5–9. No code changed except the comments that named phases.

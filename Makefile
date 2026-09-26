@@ -43,11 +43,11 @@ build:         ## SPA build into the backend, then the container image
 deploy:        ## push the local directory to Railway
 	railway up
 
-seed:          ## uv run kms seed: ingest seed/<collection>/ through the upload service function (Phase 5)
-	@echo "not yet: Phase 5"
+seed:          ## uv run kms seed: ingest seed/<collection>/ through the upload service function (Phase 6)
+	@echo "not yet: Phase 6"
 
-matrix:        ## uv run kms matrix: run seed/demo/matrix.json against the API (Phase 5)
-	@echo "not yet: Phase 5"
+matrix:        ## uv run kms matrix: run seed/demo/matrix.json against the API (Phase 6)
+	@echo "not yet: Phase 6"
 
 logs:
 	railway logs

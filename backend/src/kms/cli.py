@@ -1,4 +1,4 @@
-"""`uv run kms <command>`: operational commands. Filled in from Phase 1 on."""
+"""`uv run kms <command>`: operational commands. Filled in from Phase 3 on."""
 
 import sys
 
