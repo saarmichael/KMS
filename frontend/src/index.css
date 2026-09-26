@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* A short bar sweeping from the left edge to the right, used while a search runs: `animate-sweep`. */
+@theme {
+  --animate-sweep: sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}

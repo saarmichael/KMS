@@ -98,6 +98,19 @@ export function CloseIcon({ className }: IconProps) {
   return <OutlineIcon className={className} path="M6 18 18 6M6 6l12 12" />
 }
 
+export function SearchIcon({ className }: IconProps) {
+  return (
+    <OutlineIcon
+      className={className}
+      path="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+    />
+  )
+}
+
+export function ArrowLeftIcon({ className }: IconProps) {
+  return <OutlineIcon className={className} path="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+}
+
 // A ring with one bright quarter, turned by Tailwind's `animate-spin`.
 export function SpinnerIcon({ className }: IconProps) {
   return (

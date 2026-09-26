@@ -6,6 +6,8 @@ import type { MockResponse } from './store'
 
 // Makes loading states visible, as a real network would.
 const LATENCY_MS = 300
+// Search is slower on the real server (the query is embedded first), long enough here to try Cancel.
+const SEARCH_LATENCY_MS = 1500
 
 function toHttpResponse(response: MockResponse) {
   if (response.status === 204) {
@@ -16,7 +18,7 @@ function toHttpResponse(response: MockResponse) {
 
 export const handlers = [
   http.get('/api/search', async ({ request }) => {
-    await delay(LATENCY_MS)
+    await delay(SEARCH_LATENCY_MS)
     const params = new URL(request.url).searchParams
     return toHttpResponse(await store.search(params.get('collection'), params.get('q'), params.get('page')))
   }),

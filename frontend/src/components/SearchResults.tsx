@@ -1,0 +1,184 @@
+// The results of one search in one collection. This component makes the search request, keeps the
+// pages loaded so far, and shows them as cards.
+//
+// How data flows:
+//   loadPage(1) -> search(collection, query, 1) -> GET /api/search?collection=&q=&page=1
+//     -> { results, page, has_more } -> `results` state (each page appended) and `hasMore`
+//     -> <SearchResultCard result query> for each result
+//   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
+//   Cancel (in the search box) removes this component; the effect cleanup aborts the running request
+import { useCallback, useEffect, useState } from 'react'
+import { ApiError, search } from '../api/client'
+import type { SearchResult } from '../api/types'
+import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
+import SearchResultCard from './SearchResultCard'
+import StatusMessage from './StatusMessage'
+
+type SearchResultsProps = {
+  collection: string
+  query: string
+  onBack: () => void
+  onFirstPageDone: () => void
+}
+
+const PLACEHOLDER_CARDS = 3
+
+export default function SearchResults({ collection, query, onBack, onFirstPageDone }: SearchResultsProps) {
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // ---- Talks to the API -------------------------------------------------------------------
+
+  // Loads one page of results; later pages go below the ones already shown. A failure keeps what is shown.
+  // `loading` starts as true; the buttons that load again set it back to true themselves.
+  // A cancelled request changes nothing: the component is on its way out.
+  const loadPage = useCallback(
+    (pageNumber: number, signal?: AbortSignal): Promise<void> => {
+      return search(collection, query, pageNumber, signal)
+        .then((response) => {
+          // Page 1 replaces the list, so loading it twice never shows a result twice.
+          if (pageNumber === 1) {
+            setResults(response.results)
+          } else {
+            setResults((shown) => [...shown, ...response.results])
+          }
+          setPage(response.page)
+          setHasMore(response.has_more)
+          setLoading(false)
+        })
+        .catch((caught) => {
+          if (signal?.aborted) {
+            return
+          }
+          setError(caught instanceof ApiError ? caught.detail : 'Something went wrong.')
+          setLoading(false)
+        })
+        .then(() => {
+          if (pageNumber === 1 && !signal?.aborted) {
+            onFirstPageDone()
+          }
+        })
+    },
+    [collection, query, onFirstPageDone],
+  )
+
+  // Loads the first page once, when the search starts. Leaving (Cancel, Back, a new search) runs the
+  // cleanup, which aborts the request if it is still running.
+  useEffect(() => {
+    const controller = new AbortController()
+    loadPage(1, controller.signal)
+    return () => controller.abort()
+  }, [loadPage])
+
+  function handleShowMore() {
+    setLoading(true)
+    setError(null)
+    loadPage(page + 1)
+  }
+
+  function handleTryAgain() {
+    setLoading(true)
+    setError(null)
+    loadPage(1)
+  }
+
+  // ---- Display ------------------------------------------------------------------------------
+
+  const backLink = (
+    <button
+      type="button"
+      onClick={onBack}
+      className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-500"
+    >
+      <ArrowLeftIcon className="size-4" />
+      Back to all files
+    </button>
+  )
+
+  if (page === 0) {
+    if (loading) {
+      return (
+        <ul className="space-y-3" aria-label="Searching">
+          {Array.from({ length: PLACEHOLDER_CARDS }, (_, index) => (
+            <li key={index} className="flex animate-pulse gap-4 rounded-xl bg-white p-3 shadow-xs ring-1 ring-gray-200">
+              <div className="size-28 shrink-0 rounded-lg bg-gray-100" />
+              <div className="flex-1 space-y-3 py-2">
+                <div className="h-3 w-1/3 rounded bg-gray-200" />
+                <div className="h-2.5 w-1/4 rounded bg-gray-100" />
+                <div className="h-2.5 w-5/6 rounded bg-gray-100" />
+                <div className="h-2.5 w-2/3 rounded bg-gray-100" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    if (error) {
+      return (
+        <StatusMessage
+          icon={<ExclamationIcon className="size-12" />}
+          title="Search failed"
+          text={error}
+          action={
+            <button
+              type="button"
+              onClick={handleTryAgain}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+            >
+              Try again
+            </button>
+          }
+        />
+      )
+    }
+  }
+
+  if (results.length === 0) {
+    return (
+      <StatusMessage
+        icon={<SearchIcon className="size-12" />}
+        title={`No matches for "${query}"`}
+        text="Try other words; searches match by meaning as well as by the exact words."
+        action={backLink}
+      />
+    )
+  }
+
+  const count = hasMore ? `${results.length}+` : `${results.length}`
+  const resultsWord = results.length === 1 && !hasMore ? 'result' : 'results'
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-gray-500">
+          {count} {resultsWord} for <span className="font-medium text-gray-900">"{query}"</span>
+        </p>
+        {backLink}
+      </div>
+
+      <ul className="space-y-3">
+        {results.map((result) => (
+          <SearchResultCard key={result.asset.id} result={result} query={query} />
+        ))}
+      </ul>
+
+      {error && <p className="text-center text-sm text-red-700">{error}</p>}
+      {hasMore && (
+        <div className="flex justify-center pt-2">
+          <button
+            type="button"
+            onClick={handleShowMore}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loading && <SpinnerIcon className="size-4 text-indigo-600" />}
+            Show more
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -3,9 +3,10 @@
 // Every failure is thrown as ApiError, so a component only ever catches one type and shows its `detail`.
 import type { Asset, Collection, SearchResponse, UploadResponse } from './types'
 
-export function search(collection: string, query: string, page: number): Promise<SearchResponse> {
+// `signal` lets the caller cancel the request: aborting it stops the fetch and rejects with an AbortError.
+export function search(collection: string, query: string, page: number, signal?: AbortSignal): Promise<SearchResponse> {
   const params = new URLSearchParams({ collection, q: query, page: String(page) })
-  return request<SearchResponse>(`/api/search?${params}`)
+  return request<SearchResponse>(`/api/search?${params}`, { signal })
 }
 
 export function uploadAsset(collection: string, file: File): Promise<UploadResponse> {
@@ -62,11 +63,15 @@ export class ApiError extends Error {
 }
 
 // Status 0 stands for "no HTTP answer at all" (server down, network gone).
+// A request the caller cancelled is passed on as the browser's AbortError, so it is never shown as an error.
 async function send(path: string, init?: RequestInit): Promise<Response> {
   let response: Response
   try {
     response = await fetch(path, init)
-  } catch {
+  } catch (caught) {
+    if (caught instanceof DOMException && caught.name === 'AbortError') {
+      throw caught
+    }
     throw new ApiError(0, 'Could not reach the server.')
   }
   if (response.ok) {

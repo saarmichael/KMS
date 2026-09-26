@@ -509,7 +509,7 @@ approved. Until the backend's Phase 5 passes, every call is answered by mock res
 3. Upload area (multi-file, drag and drop), list with status badges, 2 s polling while anything is
    `pending`/`processing`, error text and Retry on `failed`.
 4. Search box, results as cards: title, filename with the "Found in / identical to" alias note, snippet,
-   dimmed tail by normalised score, image thumbnail via the file endpoint, "show more".
+   closeness shown by an accent bar on the card's edge (nothing dimmed, every result fully visible), image thumbnail via the file endpoint, "show more".
 5. Asset detail view: metadata fields, visible text, the file. "Open in a new tab" and "Download" for the file,
    both in the detail view and on each file tile (Michael, Sep 27).
 6. Empty states and the seed collection as the default selection.
@@ -545,6 +545,8 @@ top of each file.
 | F4 | Collection selector | Top bar with a dropdown (names and counts), "+ New" and "Delete" next to it | decided (Sep 27) |
 | F5 | Where the selected collection lives | React state (`useState`) only; a reload goes back to the default, a new collection without uploads is lost on reload (contract §3) | decided (Sep 27) |
 | F6 | Asset list layout | One column of full-width tiles: thumbnail on the left, details on the right, status in the corner; not a table of rows, not a multi-column grid | decided (Sep 27) |
+| F7 | Where search lives | A wide search box at the top of the main area; submitting replaces the upload box and file tiles with the results, "Back to all files" returns | decided (Sep 27) |
+| F8 | How closeness is shown | No dimming: every result, thumbnail and snippet stays fully visible. A coloured bar on each result card's left edge, strong indigo for close matches down to light grey for far ones | decided (Sep 27) |
 
 ---
 
