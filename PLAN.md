@@ -47,6 +47,10 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D28 | Two tracks in parallel | A backend track (Phases 2–6, 8, 9) and a frontend track (Phase 7) run in two Claude sessions at once. Both build against the API contract (D29); the frontend uses mock responses until the backend's Phase 5 passes. Each track has its own gates. Michael's addition | decided (Sep 26) |
 | D29 | API contract first | `docs/api-contract.md` fixes every endpoint's request and exact response JSON before Phase 2 or Phase 7 starts. Written in its own session and approved by Michael; a change to it needs his approval and lands on `main` | decided (Sep 26) |
 | D30 | One worktree and branch per track | The backend session works in this checkout on `main`; the frontend session in a git worktree `../KMS-frontend` on branch `frontend`. Each session edits only its own files (see "Tracks" under How we work) | decided (Sep 26) |
+| D31 | How a collection comes into existence | Implicitly: no collections table, no create endpoint; a collection exists while it has an asset. Name rule `^[a-z0-9_-]{1,64}$`, else `422` | decided (Sep 26) |
+| D32 | Search paging | `page` (from 1) + `has_more`, page size 20, no total count; a page past the end is empty, not an error | decided (Sep 26) |
+| D33 | Error body | Always `{"detail": string}`; one exception handler flattens FastAPI's 422 list into a string | decided (Sep 26) |
+| D34 | Response models and TS types | Both hand-written from `docs/api-contract.md`; nothing generated | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -445,8 +449,8 @@ holds; a text hit points at the right chunk offsets; page 2 has no repeats).
 and paging. Redeploy.
 
 **Decisions to take.** `plainto` vs `websearch` tsquery (suggest `websearch`: quoted phrases and `-word`).
-Text search configuration (suggest `english`). RRF k (suggest 60). Whether the image unit's hit shows the
-description as its snippet.
+Text search configuration (suggest `english`). RRF k (suggest 60). (The image unit's snippet is the
+description, fixed by the API contract.)
 
 ---
 
@@ -669,3 +673,13 @@ D26 recording. The former Phases 4–8 are now 5–9. No code changed except the
   files, Voyage cosines identical to the findings. The note spent ~709 thinking tokens against 114 answer
   tokens, which confirms D25. `errors.py` not re-run, to save quota. No deploy: nothing in the app changed.
   Merged to `main` and tagged `phase-1` on Sep 26, 2026.
+
+### API contract — Sep 26, 2026
+
+- **Built.** `docs/api-contract.md`: nine endpoints, one `Asset` shape shared by upload, list, detail, retry and
+  search, the error shape, and a table of which call feeds each Phase 7 screen.
+- **Decisions taken.** D31 (implicit collections), D32 (`page` + `has_more`), D33 (`{"detail": string}`),
+  D34 (hand-written types), each chosen by Michael from presented options. Smaller choices proposed by Claude
+  and accepted are in `docs/claude-recommendations.md`.
+- **Deviations.** The Phase 5 question on the image unit's snippet is settled here (the description).
+- **Gate.** Michael read the contract and approved it. Committed on `main`; frontend worktree set up.
