@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "real"] = "fake"
     gemini_api_key: str | None = None
     voyage_api_key: str | None = None
-    # Exact model ids are confirmed in the Phase 1 spike.
-    vision_model: str = "gemini-3-flash"
+    # First of the D23 fallback list; the list itself replaces this setting in Phase 1 part 5.
+    vision_model: str = "gemini-3-flash-preview"
     embedding_model: str = "voyage-multimodal-3.5"
     embedding_dims: int = 1024
     rerank_enabled: bool = False

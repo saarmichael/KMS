@@ -122,7 +122,8 @@ Text files are also split into chunks so that a hit points at a place in the fil
 
 | Choice | Value |
 | --- | --- |
-| Vision model for images | Gemini Flash (current 3.x). Chosen for OCR quality, native document handling, JSON output and a context window large enough to summarise a whole text file in one call. Alternatives weighed: Claude Haiku 4.5, GPT-5.4 Mini (comparable at this tier); open-weight Qwen3-VL (needs a GPU). |
+| Vision model for images | Gemini Flash, the older 3.x models for price (the Phase 1 spike found the 2.5 models refused to new keys); the ordered list is VISION\_MODELS, see the next row. Chosen for OCR quality, native document handling, JSON output and a context window large enough to summarise a whole text file in one call. Alternatives weighed: Claude Haiku 4.5, GPT-5.4 Mini (comparable at this tier); open-weight Qwen3-VL (needs a GPU). |
+| Vision model under high demand | An ordered list of Gemini models (VISION\_MODELS). Every call starts at the first. A model that answers overloaded (503, or a 429 for that model's own quota) is skipped at once, with no backoff, and the next one is tried; backoff happens only after every model in the list has answered overloaded. Any other error fails the call at once, since it would fail on every model. The model that answered is stored in assets.vision\_model. Embeddings have no such list: vectors from two models are not comparable. Alternatives weighed: one model with backoff (waits out an outage another model would not have); remembering overloaded models for a cooldown (faster in an outage, but shared state across worker threads). |
 | Embedding model | voyage-multimodal-3.5, 1024 dims, input\_type query/document. Single encoder for text and images (no CLIP modality gap), leads on visual retrieval while matching text-only models on text; fits pgvector's 2000-dim HNSW limit. Alternatives weighed: Cohere Embed v4 (near-equivalent, older), Gemini Embedding 2 (single-vendor route, 3072 dims), open-weight Jina v5-omni / SigLIP 2 (need a GPU; Jina is non-commercial). |
 | One prompt per asset type, or one for both | Two prompts, one schema. A short shared preamble (produce search metadata, return only this JSON), then a type-specific body: the image prompt asks for visible features, objects, documents, colours, setting and verbatim visible text; the text prompt asks for a summary, topics and named entities. Both outputs are validated by the same schema model, so storage and search never know which prompt ran. Alternative weighed: one prompt with if-image/if-text branches — dilutes both sets of instructions. |
 | Which part of a long text file the summary is made from | Whole file when it fits a configurable token budget (default \~200K tokens, \~800 KB of text, which Gemini Flash takes in one call); above that, the head only, up to the budget. Implemented as a summary-source strategy with three named implementations: whole-file (live), head (live fallback), map-reduce (stub — the intended path for very large files, left unimplemented to keep the first version simple). README states the head-only bias on huge files; their chunk units still carry recall for the literal content, so only the topic-level summary degrades. |
@@ -157,6 +158,7 @@ erDiagram
     text visible_text
     text image_type "photo screenshot document diagram other; null for text"
     int metadata_version
+    text vision_model "which model wrote the metadata"
     timestamptz created_at
   }
   SEARCH_UNITS {

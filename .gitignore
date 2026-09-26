@@ -21,3 +21,4 @@ backend/kms/static/
 .DS_Store
 .idea/
 .vscode/
+backend/spike/out/

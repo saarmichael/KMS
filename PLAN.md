@@ -38,6 +38,8 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D19 | Worker runs standalone too | `uv run kms worker` runs the same thread pool as its own process. The API still starts the pool by default (`WORKER_ENABLED=true`); the command is for the manual checklist (stop the worker, kill it mid-job) and is the scale path the design names (a second container) | decided (Sep 25, Claude's pick) |
 | D20 | One CLI entry point | Everything is a subcommand of `kms`: `describe`, `embed`, `worker`, `seed`, `matrix`. No separate console scripts | decided (Sep 25) |
 | D21 | GitHub remote and deploy source | The interviewer reads the code on GitHub, and the design doc says Railway deploys from GitHub. Whether to add the remote now and switch Railway to it, or keep `railway up` until Phase 7 | **open — Michael's call, asked now rather than in Phase 7** |
+| D22 | Recorded vendor responses | The real adapters are wrapped by a record/replay layer keyed on model, prompt version and input hash, one JSON file per call under `AI_CACHE_DIR`; fakes stay the test default. Michael's addition, see `docs/michael-additions.md` | decided (Sep 25) |
+| D23 | Vision model fallback | `VISION_MODELS` is an ordered JSON list of Gemini model ids, older models only for price, default `["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]`. Every call starts at the first. Overloaded (503, or a 429 for that model's quota) → next model at once, no backoff; backoff only after the whole list answered overloaded. Any other error fails at once. The answering model is stored in the new `assets.vision_model` column (migration 0002, D11). No fallback for embeddings: vectors from two models are not comparable. Michael's addition | decided (Sep 25) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -103,7 +105,7 @@ KMS/
 │   │   ├── migrations.py    run/inspect Alembic from Python
 │   │   ├── cli.py           `uv run kms <command>`: describe, embed, worker, seed, matrix
 │   │   ├── blob/            BlobStore interface + LocalBlobStore
-│   │   ├── ai/              Vision / Embedder / Reranker interfaces, real + fake adapters, schema, prompts
+│   │   ├── ai/              Vision / Embedder / Reranker interfaces, real + recorded + fake adapters, schema, prompts
 │   │   ├── ingest/          upload service function, chunker, images, summary source, worker, listener
 │   │   ├── search/          keyword path, vector path, fusion + grouping, service (query-embed cache lives here)
 │   │   ├── api/             FastAPI routers: assets, collections, search, health
@@ -203,7 +205,8 @@ everything else calls.
 1. Throwaway scripts in `backend/spike/` (kept in git, not imported): describe one image and one text
    file with Gemini using the two prompts and the shared schema; embed a batch of text + image with Voyage;
    print raw responses, token counts, timings; provoke a 429 or a bad key and see what the SDK does with
-   it. Record findings in the Phase log. The spike's answer on retries decides how thin `ai/errors.py` is:
+   it. List the Flash models the key can see, and record which error a model under high demand returns
+   (D23). Record findings in the Phase log. The spike's answer on retries decides how thin `ai/errors.py` is:
    if the SDKs already back off on transient errors, the module is classification only; if not, tenacity
    wraps the calls. The plan for step 3 is written after this step.
 2. `ai/schema.py`: the Pydantic metadata model and the normalisation layer (lowercase/dedupe tags, clamp
@@ -213,11 +216,16 @@ everything else calls.
 4. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
    The `Reranker` interface arrives with search in Phase 4 (D16).
 5. Real adapters: `GeminiVision` (response_schema → validate → normalise → one repair retry → permanent
-   error), `VoyageEmbedder` (batched, `input_type` query/document). Prompts live in `ai/prompts/`.
-6. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
+   error; on an overloaded answer it moves to the next id in `VISION_MODELS` and reports which model
+   answered, D23; migration 0002 adds `assets.vision_model`), `VoyageEmbedder` (batched, `input_type` query/document). Prompts live in `ai/prompts/`.
+6. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of
+   model, prompt version and input; one JSON file per call under `AI_CACHE_DIR`. Hit → the stored
+   response; miss → the vendor, then store. An empty setting turns it off. Fakes stay the test default;
+   recording makes the live test, the matrix and the demo repeatable and free after the first run.
+7. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
    fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
    byte hash). Selected by `AI_PROVIDER`.
-7. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
+8. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
    with either provider.
 
 **Tests that pass here.** Unit 3 (schema normalisation), unit 4 (error classification), plus an
@@ -231,7 +239,8 @@ the batch timing.
 
 **Decisions to take.** Exact Gemini model id (current Flash). Output token limit for `visible_text`.
 Whether the repair retry re-sends the image (cost) or only the text. SDK retries or tenacity (after
-step 1). Anything the spike contradicts in the design.
+step 1). Anything the spike contradicts in the design. Where `AI_CACHE_DIR` defaults to, and whether the
+demo collection's recorded responses are committed so a fresh clone replays them (settled in Phase 5).
 
 ---
 
@@ -506,3 +515,32 @@ _Appended at each gate: date, deviations from the plan, decisions taken._
 Phases 1–7 reviewed against the design and the Phase 0 skeleton before Phase 1 started. Decisions D15–D20
 taken, D21 opened. The former Phase 2 became Phases 2 and 3; everything after is renumbered by one. No code
 changed except the Makefile comments that named the seed phase.
+
+### Phase 1 spike findings — Sep 26, 2026
+
+Scripts in `backend/spike/`; raw responses in `backend/spike/out/` (git-ignored).
+
+- **Model ids.** `gemini-3-flash` does not exist. The 2.5 Flash models are listed but refused to new keys
+  (404 "no longer available to new users"). D23 list chosen by Michael: older models for price,
+  `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`.
+  `voyage-multimodal-3.5` works, 1024 dims, vectors come back L2-normalised (norm 0.999).
+- **Structured output.** `response_schema` with a Pydantic class is honoured: both outputs parsed into the draft
+  model with no repair. Screenshot OCR read the game HUD and "SYNKA CO."; `image_type` screenshot, correct.
+- **Tags.** The text prompt returns multi-word tags ("travel notes") and adds outside knowledge ("jerónimos
+  monastery" for "the monastery"). Normalisation question for part 2.
+- **Cost per call.** Image at 1024x576: 1,266 prompt tokens, 230 output, 12 s. Text note: 311 prompt, 140 output,
+  and 554 hidden thinking tokens billed as output (Gemini 3 thinks by default). Voyage: the same image is 589,824
+  pixels, counted as ~1,050 tokens; a batch of three texts plus the image took 3.5 s, a one-word query 0.3 s.
+- **Mixed batch.** Voyage takes one `multimodal_embed` call mixing text inputs and a PIL image input.
+- **Synonyms.** cosine("black hair", brunette sentence) 0.276 > note 0.228 > screenshot 0.167 > unrelated 0.134.
+  The design's claim holds on raw vectors.
+- **Overload.** Gemini answers `503 UNAVAILABLE` "This model is currently experiencing high demand"; four models
+  returned it during the spike, once mid-run. This is the D23 trigger.
+- **Rate limits (free tiers).** Gemini: 20 requests per day per model (`GenerateRequestsPerDayPerProjectPerModel-
+  FreeTier`), 429 with a `RetryInfo.retryDelay` in the body and no `Retry-After` header. Voyage without a payment
+  method: 3 requests per minute, 10K tokens per minute, 429 with no retry header. Neither is enough for seeding.
+- **Errors.** Bad key: Gemini 400 `API_KEY_INVALID` (`ClientError`), Voyage 401 `AuthenticationError`. Both are
+  permanent; note Gemini's is a 400, not a 401.
+- **SDK retries.** Both SDKs retry when asked (Gemini `HttpRetryOptions`, off by default; Voyage `max_retries`,
+  0 by default). Neither honours the server's wait: Gemini gave up after ~8.6 s against a 33 s `retryDelay`;
+  Voyage after ~4.5 s against a one-minute window.
