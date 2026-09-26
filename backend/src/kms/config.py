@@ -1,8 +1,7 @@
 """Every environment variable in one place.
 
 Values are read from the environment and from a `.env` file in the working directory
-(backend/.env locally, never committed). Names match the design doc; defaults are the
-design's defaults.
+(backend/.env locally, never committed).
 """
 
 from functools import lru_cache
@@ -25,7 +24,7 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "real"] = "fake"
     gemini_api_key: str | None = None
     voyage_api_key: str | None = None
-    # First of the D23 fallback list; the list itself replaces this setting in Phase 4 (D27).
+    # The Gemini model that describes images and text files.
     vision_model: str = "gemini-3-flash-preview"
     embedding_model: str = "voyage-multimodal-3.5"
     embedding_dims: int = 1024

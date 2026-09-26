@@ -6,12 +6,16 @@ autocommit connection that is not part of the pool, so it uses psycopg directly.
 
 import time
 from contextlib import contextmanager
+from uuid import UUID
 
 import psycopg
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from kms.config import get_settings
+
+# The queue's wake-up channel: upload and retry notify on it, the worker listens on it.
+ASSET_PENDING_CHANNEL = "asset_pending"
 
 _engine: Engine | None = None
 
@@ -62,3 +66,15 @@ def notify_self_test(timeout_s: float = 2.0) -> dict:
 def db_ping() -> bool:
     with get_engine().connect() as conn:
         return conn.execute(text("SELECT 1")).scalar() == 1
+
+
+def notify_asset_pending(connection: Connection, asset_id: UUID) -> None:
+    """Announce a pending asset inside the caller's transaction.
+
+    Postgres delivers the notification only when that transaction commits, so a listener never
+    hears about a row it cannot see yet, and a rolled-back insert announces nothing.
+    """
+    connection.execute(
+        text("SELECT pg_notify(:channel, :asset_id)"),
+        {"channel": ASSET_PENDING_CHANNEL, "asset_id": str(asset_id)},
+    )

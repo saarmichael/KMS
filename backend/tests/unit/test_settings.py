@@ -1,7 +1,7 @@
 from kms.config import Settings
 
 
-def test_defaults_match_design():
+def test_defaults():
     s = Settings(_env_file=None)
     assert s.ai_provider == "fake"
     assert s.worker_threads == 4

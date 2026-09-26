@@ -15,7 +15,8 @@ backend/kms/static/
 .env
 .env.*
 !.env.example
-/data/
+# Blob folders, wherever BLOB_DIR points (backend/data locally).
+data/
 
 # OS / editors
 .DS_Store

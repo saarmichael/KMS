@@ -169,7 +169,7 @@ UI can send them in parallel.
 | `202 Accepted` | `{"deduplicated": false, "asset": Asset}` | New file. `asset.status` is `"pending"`; the worker picks it up |
 | `200 OK` | `{"deduplicated": true, "asset": Asset}` | The collection already holds these exact bytes. Nothing is processed again; `asset` is the existing one in whatever status it has, and if the filename is new it now appears in `asset.aliases` |
 | `413` | error | Over 10 MB |
-| `415` | error | Not a supported image and not text. The exact accepted formats are fixed in Phase 2 |
+| `415` | error | Not a supported image and not text. Accepted: JPEG, PNG and WebP images (detected by reading the image header), and UTF-8 text (a BOM is allowed, NUL bytes are not). An empty file is `415` (D36) |
 | `422` | error | `file` or `collection` missing, or the collection name breaks the rule |
 
 **Why dedup is a `200` and not an error:** uploading the same file twice is harmless, and a client that
@@ -223,10 +223,10 @@ to show a text file's content in the detail view.
 
 | Header | Value | Why |
 | --- | --- | --- |
-| `Content-Type` | the asset's `mime` | The browser renders it correctly |
+| `Content-Type` | the asset's `mime`; for text files `text/plain; charset=utf-8` (D37) | The browser renders it correctly; upload guarantees UTF-8, so the charset is always true |
 | `ETag` | `"<sha256>"` | The bytes of an asset never change, so the hash identifies them |
 | `Cache-Control` | `public, max-age=31536000, immutable` | Same reason: the browser keeps it for a year and never asks again |
-| `Content-Disposition` | `inline; filename="<filename>"` | Shown in the browser; a "save as" gets the right name |
+| `Content-Disposition` | `inline; filename="<filename>"`; a non-ASCII name as `inline; filename*=utf-8''<percent-encoded name>` | Shown in the browser; a "save as" gets the right name. An HTTP header carries only Latin-1, so other names use the RFC 5987 form |
 
 There is no thumbnail endpoint: the UI scales the original with CSS. Images are at most 10 MB and the
 cache headers mean each is downloaded once.
