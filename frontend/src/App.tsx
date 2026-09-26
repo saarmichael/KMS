@@ -6,11 +6,14 @@
 //     -> <CollectionDropdown collections>                 (names and counts in the picker)
 //     -> <DeleteCollectionDialog name assetCount>         (the selected one)
 //   Delete button -> dialog -> handleDelete() -> deleteCollection() -> refreshCollections()
+//   selected collection -> <CollectionFiles collection>   (its files, uploads and retries)
+//     after an upload it calls onCollectionChanged = refreshCollections, so the counts reload
 import { useEffect, useState } from 'react'
 import { ApiError, deleteCollection, listCollections } from './api/client'
 import type { Collection } from './api/types'
 import { defaultCollection, withDrafts } from './collections'
 import CollectionDropdown from './components/CollectionDropdown'
+import CollectionFiles from './components/CollectionFiles'
 import DeleteCollectionDialog from './components/DeleteCollectionDialog'
 import NewCollectionForm from './components/NewCollectionForm'
 import StatusMessage from './components/StatusMessage'
@@ -105,11 +108,12 @@ export default function App() {
         />
       )
     }
+    // A new key means a new component: switching collection starts with an empty list and no timers.
     return (
-      <StatusMessage
-        icon={<FolderIcon className="size-12" />}
-        title={selectedCollection.name}
-        text="Search and file upload for this collection come next."
+      <CollectionFiles
+        key={selectedCollection.name}
+        collection={selectedCollection.name}
+        onCollectionChanged={refreshCollections}
       />
     )
   }

@@ -510,7 +510,8 @@ approved. Until the backend's Phase 5 passes, every call is answered by mock res
    `pending`/`processing`, error text and Retry on `failed`.
 4. Search box, results as cards: title, filename with the "Found in / identical to" alias note, snippet,
    dimmed tail by normalised score, image thumbnail via the file endpoint, "show more".
-5. Asset detail view: metadata fields, visible text, the file.
+5. Asset detail view: metadata fields, visible text, the file. "Open in a new tab" and "Download" for the file,
+   both in the detail view and on each file tile (Michael, Sep 27).
 6. Empty states and the seed collection as the default selection.
 
 **Tests that pass here.** None automated, by the test plan's choice. Manual checklist items 1, 2, 3, 4, 9
@@ -543,6 +544,7 @@ top of each file.
 | F3 | Visual direction | Minimal: neutral greys, one accent colour, Tailwind's indigo | decided (Sep 27) |
 | F4 | Collection selector | Top bar with a dropdown (names and counts), "+ New" and "Delete" next to it | decided (Sep 27) |
 | F5 | Where the selected collection lives | React state (`useState`) only; a reload goes back to the default, a new collection without uploads is lost on reload (contract §3) | decided (Sep 27) |
+| F6 | Asset list layout | One column of full-width tiles: thumbnail on the left, details on the right, status in the corner; not a table of rows, not a multi-column grid | decided (Sep 27) |
 
 ---
 
