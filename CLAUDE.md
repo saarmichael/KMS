@@ -61,3 +61,12 @@ accepted without discussion counts; a choice Michael changed or brought himself 
 instead, never to both. Claude writes the entry in the same step as the decision, with the date, the
 phase, the decision, Claude's reasoning, the alternative weighed, and where it is recorded (a D-number, a
 plan, a commit).
+
+## Tracks
+
+Two Claude sessions may work at once: the backend track on `main` in this checkout, the frontend track
+(Phase 7) on branch `frontend` in the worktree `../KMS-frontend`. Before anything else, a session works out
+which track it is on from its branch and reads "Tracks" under "How we work" in `PLAN.md`: it edits only
+the files its track owns, and never changes `docs/api-contract.md` without a plan Michael approved.
+Frontend decisions take F-numbers and live in the Phase 7 section of `PLAN.md`; D-numbers belong to the
+backend track.

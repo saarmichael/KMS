@@ -44,6 +44,9 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D25 | Gemini thinking | Lowest thinking level on every describe call: the spike measured 554 thinking tokens against 140 answer tokens on a short note | decided (Sep 26) |
 | D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–4. The last step of Phase 4 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings are committed to git, so tests and demos on a fresh clone or on Railway replay them. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26; moved from Phase 3 to 4 by D27) |
 | D27 | AI adapters get their own phase, after the worker | Phase 1 is the vendor spike only. The schema, the `Vision`/`Embedder` interfaces and the fakes move to Phase 3, where the worker is their first caller; the plumbing (upload, DB, worker) is built and demoed on hand-written fixture metadata. The real adapters, `ai/errors.py`, the record/replay layer, migration 0002, `kms describe`/`kms embed` and the D26 recording become Phase 4, built against a running worker. The former Phases 4–8 become 5–9. Michael's addition | decided (Sep 26) |
+| D28 | Two tracks in parallel | A backend track (Phases 2–6, 8, 9) and a frontend track (Phase 7) run in two Claude sessions at once. Both build against the API contract (D29); the frontend uses mock responses until the backend's Phase 5 passes. Each track has its own gates. Michael's addition | decided (Sep 26) |
+| D29 | API contract first | `docs/api-contract.md` fixes every endpoint's request and exact response JSON before Phase 2 or Phase 7 starts. Written in its own session and approved by Michael; a change to it needs his approval and lands on `main` | decided (Sep 26) |
+| D30 | One worktree and branch per track | The backend session works in this checkout on `main`; the frontend session in a git worktree `../KMS-frontend` on branch `frontend`. Each session edits only its own files (see "Tracks" under How we work) | decided (Sep 26) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -61,8 +64,8 @@ key, Voyage API key, Railway account. GitHub repo: D21.
 5. A short entry is appended to the **Phase log** at the bottom of this file: date, what deviated from the
    plan, decisions taken in the phase.
 
-Only then does the next phase start. If a phase reveals that the design is wrong, the design doc is changed
-first, then the plan, then the code.
+Only then does the next phase of the same track start (see Tracks below). If a phase reveals that the design
+is wrong, the design doc is changed first, then the plan, then the code.
 
 **Inside a phase.** Claude lists the steps, then does them one at a time. Each step ends in a small commit
 (`phase-N: <what>`) with tests green. Michael reviews diffs at his own pace; a question that needs his call
@@ -72,6 +75,25 @@ the stack that is new to Michael in the message that introduces it.
 **Rules that keep the loop cheap.** `AI_PROVIDER=fake` is the local default; real vendors are used only in
 the spike, the live test and seeding. Secrets live in `.env` (git-ignored); `.env.example` lists every
 variable with a comment. No step reaches into a later phase's concern.
+
+**Tracks (D28–D30).** Two Claude sessions work at once, one per track.
+
+| | Backend track | Frontend track |
+| --- | --- | --- |
+| Phases | 2, 3, 4, 5, 6, 8, 9 | 7 |
+| Where | this checkout, branch `main` | worktree `../KMS-frontend`, branch `frontend` |
+| Edits | `backend/`, `docker/`, `seed/`, root files, `docs/`, all of `PLAN.md` except the Phase 7 section | `frontend/`, the Phase 7 section of `PLAN.md` |
+| Decision numbers | D-numbers, in the decision log | F-numbers (F1, F2, …), in the Phase 7 section |
+| Starts | after the API contract is approved | after the API contract is approved |
+
+- Both tracks build against `docs/api-contract.md`. Neither changes it on its own: a change is a plan
+  approved by Michael, committed on `main`, then merged into `frontend`.
+- Both sessions append to `docs/michael-additions.md` and `docs/claude-recommendations.md`. Appends from the
+  two branches can conflict at merge; the resolution is always to keep both entries.
+- The frontend branch merges `main` whenever the contract changes, and merges into `main` at its gates.
+- Setup, once the contract is committed: `git worktree add ../KMS-frontend -b frontend` from this checkout,
+  then `npm install` in `../KMS-frontend/frontend`, then a Claude session opened in `../KMS-frontend`.
+  `.env` files are git-ignored and do not follow into a worktree; the frontend needs none while it uses mocks.
 
 **Running things** (targets exist from Phase 0; each phase fills them in):
 
@@ -96,7 +118,10 @@ KMS/
 ├── README.md                project README (moved from docs/)
 ├── docs/
 │   ├── system-design.md
-│   └── TESTING.md
+│   ├── TESTING.md
+│   ├── api-contract.md      every endpoint's request and response JSON (D29), shared by both tracks
+│   ├── michael-additions.md
+│   └── claude-recommendations.md
 ├── backend/
 │   ├── pyproject.toml       uv-managed; ruff + pytest config; one console script: kms
 │   ├── .env.example         every env var, commented; copy to .env (git-ignored)
@@ -137,12 +162,13 @@ KMS/
 | --- | --- | --- |
 | 0 | Environment, toolchain, platform (can Railway run our container, Postgres, volume, LISTEN/NOTIFY?) | Hello-world app on a live URL, `make test` green |
 | 1 | Vendor unknowns (Gemini structured output, Voyage multimodal, limits, cost, SDK retries) | Findings in the Phase log; model list, retries and thinking decided (D23–D25) |
+| contract | Two tracks building to different guesses of the API | `docs/api-contract.md` approved; frontend worktree set up (D28–D30) |
 | 2 | Upload path: type sniffing, blob store, dedup race, the asset and collection API | Upload via curl → `pending` row, dedup returns the existing asset, files serve with cache headers |
 | 3 | The queue design: claim, lease, reaper, retries, transactional commit; the adapter interfaces and fakes | Worker turns `pending` into `ready` with fixture metadata and units written; kill it and the reaper recovers |
 | 4 | Our code around the vendors: validation and repair, model fallback, backoff, record/replay | An uploaded file gets real metadata through the worker; the demo collection is recorded and committed |
 | 5 | Hybrid search: two paths, RRF, grouping, collection scope, paging | Search via curl returns ranked assets with snippets |
 | 6 | Search quality with real models; seed collection proves the assignment's queries | `make seed` + `make matrix` passes on the demo collection |
-| 7 | The interviewer's path through the UI | Full demo in the browser, locally |
+| 7 (frontend track) | The interviewer's path through the UI | Full demo in the browser, locally; built on mocks from the contract on, switched to the real API after Phase 5 |
 | 8 | Production shape: seed on start, volume, migrations at boot, README | Full manual checklist passes on the live URL |
 | 9 (optional) | Reranker, typo correction | Each behind a flag with one test and one matrix row |
 
@@ -222,6 +248,33 @@ findings in the Phase log against their output.
 
 **Decisions to take.** Exact Gemini model id (D23). SDK retries or tenacity (D24). Anything the spike
 contradicts in the design.
+
+---
+
+## API contract — before Phases 2 and 7 (D29)
+
+**Risk retired.** Two sessions building the two sides at once (D28) would each guess field names, status
+codes and error shapes differently. Writing the contract first is the only coupling between the tracks.
+
+**Build.** Done in its own session. The plan for it is written and approved like any part plan.
+
+1. `docs/api-contract.md`: one entry per endpoint. Method and path; query parameters; request body (the
+   multipart fields for upload); every status code it can return; the exact response JSON with field
+   names, types and nullability; the error body shape. The endpoints already named in this plan and the
+   design: `POST /api/assets`, `GET /api/assets?collection=`, `GET /api/assets/{id}`,
+   `GET /api/assets/{id}/file`, `POST /api/assets/{id}/retry`, `GET /api/collections`,
+   `DELETE /api/collections/{name}`, `GET /api/search`, `GET /api/health`.
+2. Record the contract's decisions in the decision log and in Michael's two lists as usual.
+3. Once approved and committed: set up the frontend worktree (Tracks, under How we work).
+
+**Questions the contract session must put to Michael** (not answered here): how a collection comes into
+existence, since the UI has "+ New collection" but no create endpoint is listed; the paging shape of
+search (page number or offset, total count or not); the error body format; whether FastAPI response models
+and the hand-written TypeScript types are both written from the contract, or one is generated.
+
+**Tests that pass here.** None; no code changes.
+
+**Demo.** Michael reads `docs/api-contract.md` and can say, for each screen of Phase 7, which call feeds it.
 
 ---
 
@@ -435,10 +488,14 @@ changes and that is migration 0003 (D11 allows it).
 
 ---
 
-## Phase 7 — Web UI
+## Phase 7 — Web UI (frontend track, D28)
 
 **Risk retired.** The interviewer's path: create a collection, upload, watch statuses, search, read
 results. Low technical risk, but it is the surface everything is judged through, so it gets its own gate.
+
+**Runs in parallel** with the backend track, in the `frontend` worktree, from the moment the API contract is
+approved. Until the backend's Phase 5 passes, every call is answered by mock responses that follow
+`docs/api-contract.md` exactly. Items 1–6 below can all be built on mocks; the gate needs the real API.
 
 **Build.**
 
@@ -458,8 +515,15 @@ run locally.
 **Demo.** The full assignment flow in the browser at `localhost:5173` with fake adapters, then once with
 real adapters on the demo collection. Redeploy.
 
-**Decisions to take.** Visual direction (minimal, one accent colour is the suggestion). Whether the
-detail view is a route or a drawer. Thumbnail sizing.
+**Decisions to take.** How the mocks are served (for example static JSON behind the API client, or a
+request-intercepting library). When and how the client switches from mocks to the real API. Visual
+direction (minimal, one accent colour is the suggestion). Whether the detail view is a route or a drawer.
+Thumbnail sizing.
+
+**Frontend decisions** (F-numbers, kept here by the frontend session):
+
+| # | Decision | Value | Status |
+| --- | --- | --- | --- |
 
 ---
 
