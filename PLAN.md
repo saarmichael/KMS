@@ -591,3 +591,17 @@ Scripts in `backend/spike/`; raw responses in `backend/spike/out/` (git-ignored)
 D27: Phase 1 is the spike only. The adapter code it held moved out: the schema, interfaces and fakes to Phase 3
 (the worker is their first caller), everything that talks to a real vendor to a new Phase 4, together with the
 D26 recording. The former Phases 4–8 are now 5–9. No code changed except the comments that named phases.
+
+### Phase 1 — Sep 26, 2026
+
+- **Built.** The vendor spike in `backend/spike/` (describe, embed, errors), findings above. Nothing in `src/`.
+- **Deviations.** The adapter code planned for this phase moved out by D27: schema, interfaces and fakes to
+  Phase 3, real adapters, errors, record/replay and the collection recording to Phase 4. A Sep 24 `phase-1`
+  branch that held early `ai/` code written before the working agreement was deleted unmerged.
+- **Decisions taken.** D23 (model list), D24 (tenacity), D25 (lowest thinking), D26 (record the collection
+  early and commit it), D27 (adapters after the worker).
+- **Gate.** `make test` green (3 tests). Demo: `describe.py` and `embed.py` re-run by Claude, output shown to
+  Michael, who accepted it as the demo. Gemini no longer answers `402`; billing works. Schema honoured on both
+  files, Voyage cosines identical to the findings. The note spent ~709 thinking tokens against 114 answer
+  tokens, which confirms D25. `errors.py` not re-run, to save quota. No deploy: nothing in the app changed.
+  Merged to `main` and tagged `phase-1` on Sep 26, 2026.
