@@ -24,6 +24,25 @@ def test_splits_at_line_breaks():
     assert sentence_texts(text) == ["Shopping list", "- bread", "- custard tarts"]
 
 
+def test_numbered_list_item_stays_whole():
+    text = "Three that stuck:\n\n1. A young woman in a green dress. She looks straight at you."
+
+    assert sentence_texts(text) == [
+        "Three that stuck:",
+        "1. A young woman in a green dress.",
+        "She looks straight at you.",
+    ]
+
+
+def test_abbreviation_does_not_end_a_sentence():
+    text = "Took the subway down to 14 St. and walked across. It was late."
+
+    assert sentence_texts(text) == [
+        "Took the subway down to 14 St. and walked across.",
+        "It was late.",
+    ]
+
+
 def test_offsets_point_back_into_the_text():
     text = "  First line.\nSecond one! Third, with 3.5 litres.  \n\nLast"
 

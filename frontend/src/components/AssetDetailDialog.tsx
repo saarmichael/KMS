@@ -9,12 +9,15 @@
 //     asset.metadata -> description, tags, visible text, type, model
 //     query (when opened from a search) -> its words marked in the title, filename, description, tags,
 //       visible text and file text; the first one in the matched passage (or the file) scrolled to
+//     snippet.sentence_start_char / sentence_end_char -> for a passage matched by meaning, its closest
+//       sentence marked in teal and scrolled to instead
 //     <FileActions asset> -> Open in new tab / Download
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { ApiError, assetFileUrl, getAssetText } from '../api/client'
 import type { Asset, Snippet } from '../api/types'
 import { formatAge, formatBytes } from '../format'
+import { CLOSEST_SENTENCE_CLASS, CLOSEST_SENTENCE_TITLE } from '../searchView'
 import FileActions from './FileActions'
 import HighlightedText from './HighlightedText'
 import { CloseIcon, SpinnerIcon } from './icons'
@@ -31,6 +34,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
   const dialog = useRef<HTMLDialogElement>(null)
   const textBox = useRef<HTMLPreElement>(null)
   const passageStart = useRef<HTMLSpanElement>(null)
+  const closestSentenceMark = useRef<HTMLElement>(null)
   const firstTextMark = useRef<HTMLElement>(null)
   const visibleTextBox = useRef<HTMLDivElement>(null)
   const firstVisibleTextMark = useRef<HTMLElement>(null)
@@ -56,11 +60,12 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
     dialog.current?.showModal()
   }, [])
 
-  // Once the text is on screen, only the text box scrolls so the first marked word sits in its middle;
-  // the dialog itself stays put, title in view. A passage matched by meaning may hold no query word, so
-  // then its start is the target. offsetTop is measured from the box (it is `relative`).
+  // Once the text is on screen, only the text box scrolls so the target sits in its middle; the dialog
+  // itself stays put, title in view. The target is the closest sentence of a passage matched by meaning,
+  // else the first marked word, else the passage's start. offsetTop is measured from the box (it is
+  // `relative`).
   useEffect(() => {
-    const target = firstTextMark.current ?? passageStart.current
+    const target = closestSentenceMark.current ?? firstTextMark.current ?? passageStart.current
     if (textBox.current && target) {
       textBox.current.scrollTop = target.offsetTop - textBox.current.clientHeight / 2
     }
@@ -116,6 +121,25 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
           <HighlightedText text={after} query={queryText} />
         </>
       )
+
+      // A passage matched by meaning is cut once more around its closest sentence, which is marked.
+      if (snippet.sentence_start_char !== null && snippet.sentence_end_char !== null) {
+        const passageBeforeSentence = characters.slice(snippet.start_char, snippet.sentence_start_char).join('')
+        const sentence = characters.slice(snippet.sentence_start_char, snippet.sentence_end_char).join('')
+        const passageAfterSentence = characters.slice(snippet.sentence_end_char, snippet.end_char).join('')
+        content = (
+          <>
+            <HighlightedText text={before} query={queryText} />
+            <span ref={passageStart} />
+            <HighlightedText text={passageBeforeSentence} query={queryText} />
+            <mark ref={closestSentenceMark} className={CLOSEST_SENTENCE_CLASS} title={CLOSEST_SENTENCE_TITLE}>
+              <HighlightedText text={sentence} query={queryText} />
+            </mark>
+            <HighlightedText text={passageAfterSentence} query={queryText} />
+            <HighlightedText text={after} query={queryText} />
+          </>
+        )
+      }
     }
 
     return (

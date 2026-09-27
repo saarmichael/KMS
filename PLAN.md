@@ -67,7 +67,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D48 | An asset is found by its file name | Every asset gets one `filename` search unit, keyword-indexed and embedded like the others: the full name, then its words split on anything that is not a letter or digit (`notes-lisbon.txt notes lisbon txt`), because Postgres keeps a bare file name as one token and "lisbon" would not find it. Original filename only, not aliases (they arrive after processing). No migration. Search needs no new path, only a `"filename"` snippet kind whose text is the filename (contract change); the UI labels it and marks the query words. Kept small on purpose: a misleading filename snippet in the vector tail is a known limitation, checked in Phase 6, not fixed now. Michael's addition | decided (Sep 27) |
 | D49 | One password in front of the deployed app | HTTP Basic Auth as middleware over every path except `/api/health`; one shared `APP_PASSWORD` (any username), compared in constant time; empty turns it off, so local dev and tests are open. The browser's own prompt, so the UI needs no change. Guards the vendor credit behind the public URL once live runs real providers; teardown is changing or emptying the password. Brought forward from Phase 8. Michael's addition | decided (Sep 27) |
 | D50 | How a result matched, and the user's view of the results | Each unit is an `exact` match (the keyword search found every query word in it), `partial` (some words) or `semantic` (meaning only). A plain query now finds keyword matches on any word, all-words units first; a query with quotes, `-word` or `or` stays strict. An asset takes its strongest match and its snippet from the unit that shows it; its score stays its best unit's, against the top of the whole query. The API returns `match` per result and takes `order` (`exact_first` default, `tiered`, `blended`) and repeatable filters `match`, `asset_type`, `found_in`. Filters and order run in the backend over the fused list, then the cap and the page, so a change is a new request for page 1 (the query vector is cached). Filters narrow the best 100 units per path; they do not search deeper. A real reranker must keep each result in its tier. Michael's addition | decided (Sep 27) |
-| D51 | The closest sentence of a match by meaning | For a result whose `match` is `semantic` and whose snippet is a text passage, the search finds the passage's sentence closest in meaning to the query: the passage is split into sentences (after `.` `!` `?` followed by whitespace, and at every line break), all such sentences of the page are embedded in one call with the same embedder as `"document"`, and the closest by cosine to the cached query vector wins. The API returns it as `snippet.sentence_start_char`/`sentence_end_char`, offsets in the file; the card opens its preview on it and the dialog tints it and scrolls to it. Our own embedder, not a second model (Jev was weighed), so the sentence comes from the same model that ranked the result. Computed during the search, after paging, so only shown results cost anything; not stored at ingest (a migration and about 12x the vector rows). A failed sentence embedding leaves the fields `null` and the search succeeds. Phase 9, item 3 | decided (Sep 27) |
+| D51 | The closest sentence of a match by meaning | For a result whose `match` is `semantic` and whose snippet is a text passage, the search finds the passage's sentence closest in meaning to the query: the passage is split into sentences with `pysbd` (rule-based: abbreviations, numbered lists, one line per item; character offsets), all such sentences of the page are embedded in one call with the same embedder as `"document"`, and the closest by cosine to the cached query vector wins. The API returns it as `snippet.sentence_start_char`/`sentence_end_char`, offsets in the file; the card opens its preview on it and the dialog tints it and scrolls to it. Our own embedder, not a second model (Jev was weighed), so the sentence comes from the same model that ranked the result. Computed during the search, after paging, so only shown results cost anything; not stored at ingest (a migration and about 12x the vector rows). A failed sentence embedding leaves the fields `null` and the search succeeds. Phase 9, item 3 | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1114,18 +1114,19 @@ collection, upload, search. Ten minutes, the interviewer's script.
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Backend and contract: splitter, the sentence step in the search, two snippet fields | implemented, awaiting review |
-| 2 | Frontend: types, mock, card preview and dialog tint | plan approved, waits for Part 1 |
+| 1 | Backend and contract: splitter, the sentence step in the search, two snippet fields | done (20e5f2e) |
+| 2 | Frontend: types, mock, card preview and dialog tint | implemented, awaiting review |
 
 **Item 3, Part 1 plan (approved Sep 27).** Settled: our own embedder, not Jev; computed during the search,
-only for the page; only for `semantic` results whose snippet kind is `content`; a regex splitter; no flag,
-no setting, no dependency, no migration. A failed sentence embedding degrades quietly, unlike the query
+only for the page; only for `semantic` results whose snippet kind is `content`; `pysbd` as the splitter (amended Sep 27:
+the first regex cut `1.` off a numbered list; `nltk` Punkt kept a to-do file as one piece, `blingfire`
+has no Apple Silicon build); no flag, no setting, no migration. A failed sentence embedding degrades quietly, unlike the query
 embedding, which fails the request: the sentence is decoration on results the user already has.
 
 - *New `search/sentences.py`:* `Sentence(start: int, end: int, text: str)`, a frozen dataclass, offsets
   relative to the text split, `text == source[start:end]`. `split_sentences(text: str) -> list[Sentence]`:
-  a sentence ends after `.`, `!` or `?` followed by whitespace, and at every line break; edge whitespace is
-  left out by moving the offsets; a piece with no letter or digit is dropped; `[]` for text with no words;
+  one module-level `pysbd.Segmenter(language="en", clean=False, char_span=True)` finds the sentences and
+  their offsets; edge whitespace (pysbd keeps it) is left out by moving the offsets; a piece with no letter or digit is dropped; `[]` for text with no words;
   never raises. The first and last piece of a passage may be half a sentence (chunks cut at a space).
   `cosine_similarity(first: Sequence[float], second: Sequence[float]) -> float`: dot product over the
   product of the lengths, plain Python; 0.0 when either has length zero; never raises. Alternative:
@@ -1144,7 +1145,8 @@ embedding, which fails the request: the sentence is decoration on results the us
   `match` is `"semantic"`, inside `start_char`–`end_char`, otherwise `null` (also when the sentence could
   not be found); D51 in the decision table.
 - *Tests:* new `tests/unit/test_sentences.py`: `test_splits_after_sentence_punctuation`,
-  `test_splits_at_line_breaks`, `test_offsets_point_back_into_the_text`, `test_edge_whitespace_is_left_out`,
+  `test_splits_at_line_breaks`, `test_numbered_list_item_stays_whole`,
+  `test_abbreviation_does_not_end_a_sentence`, `test_offsets_point_back_into_the_text`, `test_edge_whitespace_is_left_out`,
   `test_pieces_without_words_are_dropped`, `test_text_without_words_gives_no_sentences`,
   `test_cosine_of_same_direction_is_one`, `test_cosine_of_zero_vector_is_zero`. `test_search_service.py`
   (stub embedder): `test_closest_sentence_marked_on_semantic_passage`,

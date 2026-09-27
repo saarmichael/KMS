@@ -6,7 +6,9 @@
 //     result.asset    -> thumbnail (assetFileUrl), title, "Found in" filename (query words marked) and aliases
 //     result.snippet  -> what matched ("In the text" ...) and the text, with the query words marked; a
 //                        passage is cut to start just before its first query word, and the query words
-//                        the cut left out are counted: "2 more matches in this passage →"
+//                        the cut left out are counted: "2 more matches in this passage →". A passage
+//                        matched by meaning starts on its closest sentence instead, marked in teal
+//                        (snippet.sentence_start_char / sentence_end_char)
 //     asset.metadata.visible_text -> for an image whose text contains a query word: "Text in the image"
 //     result.score    -> closeness() -> colour of the edge bar and its tooltip
 //     result.match    -> the badge: exact, partial or semantic, in its colour
@@ -14,7 +16,7 @@
 import { assetFileUrl } from '../api/client'
 import type { Asset, SearchResult, Snippet } from '../api/types'
 import { closeness } from '../closeness'
-import { MATCH_COLOURS, MATCH_LABELS } from '../searchView'
+import { CLOSEST_SENTENCE_CLASS, CLOSEST_SENTENCE_TITLE, MATCH_COLOURS, MATCH_LABELS } from '../searchView'
 import { countMatches, excerptAround } from '../queryWords'
 import HighlightedText from './HighlightedText'
 import { DocumentIcon } from './icons'
@@ -54,12 +56,30 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
   // Query words in the passage that the cut left out; the card says how many, so the user knows the
   // dialog has more to show.
   let moreMatches = 0
+  // A passage matched by meaning may hold no query word at all. The server then names the sentence closest
+  // in meaning to the query, and the card starts on that sentence and marks it instead.
+  let closestSentence: { before: string; sentence: string; after: string } | null = null
   if (snippet.kind === 'content') {
     const cutAtStart = snippet.start_char !== null && snippet.start_char > 0
     const endsSentence = /[.!?]$/.test(snippet.text.trim())
     const passage = `${cutAtStart ? '…' : ''}${snippet.text}${endsSentence ? '' : '…'}`
     snippetText = excerptAround(passage, query, PASSAGE_EXCERPT_LENGTH) ?? passage
     moreMatches = countMatches(passage, query) - countMatches(snippetText, query)
+
+    if (snippet.start_char !== null && snippet.sentence_start_char !== null && snippet.sentence_end_char !== null) {
+      // The sentence's offsets are in the file; less the passage's start, they are in the passage. The
+      // server counts characters, and Array.from splits the text the same way.
+      const characters = Array.from(snippet.text)
+      const sentenceStart = snippet.sentence_start_char - snippet.start_char
+      const sentenceEnd = snippet.sentence_end_char - snippet.start_char
+      closestSentence = {
+        before: sentenceStart > 0 || cutAtStart ? '…' : '',
+        sentence: characters.slice(sentenceStart, sentenceEnd).join(''),
+        after: `${characters.slice(sentenceEnd).join('')}${endsSentence ? '' : '…'}`,
+      }
+      const shownText = closestSentence.sentence + closestSentence.after
+      moreMatches = countMatches(passage, query) - countMatches(shownText, query)
+    }
   }
 
   return (
@@ -103,7 +123,17 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
           <p className="text-xs font-medium tracking-wide text-indigo-600 uppercase">{SNIPPET_LABELS[snippet.kind]}</p>
         </div>
         <p className="mt-0.5 line-clamp-3 text-sm text-gray-700">
-          <HighlightedText text={snippetText} query={query} />
+          {closestSentence ? (
+            <>
+              {closestSentence.before}
+              <mark className={CLOSEST_SENTENCE_CLASS} title={CLOSEST_SENTENCE_TITLE}>
+                <HighlightedText text={closestSentence.sentence} query={query} />
+              </mark>
+              <HighlightedText text={closestSentence.after} query={query} />
+            </>
+          ) : (
+            <HighlightedText text={snippetText} query={query} />
+          )}
         </p>
         {moreMatches > 0 && (
           <p className="mt-1 text-xs font-medium text-indigo-600">

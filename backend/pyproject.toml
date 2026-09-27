@@ -19,6 +19,7 @@ dependencies = [
     "voyageai",
     "tenacity",
     "httpx",
+    "pysbd>=0.3.4,<0.4",
 ]
 
 [dependency-groups]

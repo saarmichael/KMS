@@ -60,7 +60,14 @@ export async function search(collection: string | null, query: string | null, pa
     if (stored.asset_type === 'text') {
       snippet = contentSnippet(await stored.body.text(), words)
     } else {
-      snippet = { kind: 'image' as const, text: stored.metadata.description, start_char: null, end_char: null }
+      snippet = {
+        kind: 'image' as const,
+        text: stored.metadata.description,
+        start_char: null,
+        end_char: null,
+        sentence_start_char: null,
+        sentence_end_char: null,
+      }
     }
     // The mock matches words only, so a result is exact when it holds every word; it ignores the filters.
     const match = matchCount === words.length ? ('exact' as const) : ('partial' as const)
@@ -258,5 +265,13 @@ function contentSnippet(text: string, words: string[]) {
   }
   const start = Math.max(0, position - 100)
   const end = Math.min(text.length, start + 200)
-  return { kind: 'content' as const, text: text.slice(start, end), start_char: start, end_char: end }
+  // The mock matches words only, so it never has a sentence matched by meaning.
+  return {
+    kind: 'content' as const,
+    text: text.slice(start, end),
+    start_char: start,
+    end_char: end,
+    sentence_start_char: null,
+    sentence_end_char: null,
+  }
 }

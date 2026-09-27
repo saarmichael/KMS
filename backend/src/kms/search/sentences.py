@@ -1,18 +1,20 @@
 """Split a passage into sentences and compare vectors, to find the sentence of a passage that is
 closest in meaning to a query.
 
-Deliberately simple, like the chunker: a sentence ends at punctuation or at a line break, and
-every sentence keeps its offsets so it can be pointed at in the file.
+Sentence ends are found by pysbd, a rule-based splitter that knows abbreviations, numbered
+lists and lines without punctuation, and every sentence keeps its offsets so it can be pointed
+at in the file.
 """
 
 import math
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-# A sentence ends after ".", "!" or "?" followed by whitespace, or at a line break. Notes and
-# lists often have lines without punctuation, so each line stands on its own.
-SENTENCE_END = re.compile(r"[.!?](?=\s)|\n")
+import pysbd
+
+# One splitter for the whole process; it holds only its rules. clean=False keeps the text as it
+# is, so the offsets it gives with char_span=True point into the text that was split.
+SEGMENTER = pysbd.Segmenter(language="en", clean=False, char_span=True)
 
 
 @dataclass(frozen=True)
@@ -34,7 +36,6 @@ def split_sentences(text: str) -> list[Sentence]:
     """Split a text into its sentences. Never raises.
 
     A passage is cut from a file at a space, so its first and last sentence may be halves.
-    "e.g." or "Dr." also ends a sentence; for pointing at a place in a passage, that costs little.
 
     Args:
         text: The text to split.
@@ -43,15 +44,12 @@ def split_sentences(text: str) -> list[Sentence]:
         The sentences in order, without the whitespace at their edges and without the pieces
         that hold no letter or digit. Empty when the text holds no words.
     """
-    ends = [boundary.end() for boundary in SENTENCE_END.finditer(text)]
-    ends.append(len(text))
-
     sentences = []
-    start = 0
-    for end in ends:
-        # Leave out the whitespace at both edges by moving the offsets, not by editing the text.
-        sentence_start = start
-        sentence_end = end
+    for span in SEGMENTER.segment(text):
+        # pysbd keeps the whitespace after a sentence, blank lines too. Leave it out by moving the
+        # offsets, not by editing the text.
+        sentence_start = span.start
+        sentence_end = span.end
         while sentence_start < sentence_end and text[sentence_start].isspace():
             sentence_start += 1
         while sentence_end > sentence_start and text[sentence_end - 1].isspace():
@@ -61,7 +59,6 @@ def split_sentences(text: str) -> list[Sentence]:
         # A line of only punctuation, such as "---", means nothing to compare.
         if any(character.isalnum() for character in piece):
             sentences.append(Sentence(sentence_start, sentence_end, piece))
-        start = end
     return sentences
 
 
