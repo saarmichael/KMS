@@ -4,10 +4,13 @@ The interface lets another store (an S3-compatible bucket, for example) replace 
 folder without touching the code that stores or serves files.
 """
 
+import logging
 import os
 import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class BlobStore(ABC):
@@ -55,6 +58,7 @@ class LocalBlobStore(BlobStore):
         temporary_path = self.root / f"{sha256}.tmp-{uuid.uuid4().hex}"
         temporary_path.write_bytes(data)
         os.replace(temporary_path, final_path)
+        logger.info("blob_stored sha256=%s size_bytes=%d", sha256, len(data))
 
     def get(self, sha256: str) -> bytes:
         """Read `<root>/<sha256>`; raise FileNotFoundError if it is missing."""

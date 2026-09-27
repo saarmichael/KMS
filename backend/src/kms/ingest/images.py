@@ -6,10 +6,13 @@ passed to the vision model separately, as plain values.
 """
 
 import io
+import logging
 
 from PIL import ExifTags, Image, ImageOps
 
 from kms.ai.interfaces import PhotoDetails
+
+logger = logging.getLogger(__name__)
 
 IMAGE_MAX_SIDE = 1024
 # High enough that text in screenshots stays sharp.
@@ -94,7 +97,8 @@ def read_photo_details(data: bytes) -> PhotoDetails | None:
                 coordinate = -coordinate
             coordinates.append(coordinate)
         latitude, longitude = coordinates
-    except Exception:
+    except Exception as error:
+        logger.info("photo_details_unreadable error=%r", f"{type(error).__name__}: {error}")
         return None
 
     # A position needs both halves.

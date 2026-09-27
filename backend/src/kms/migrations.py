@@ -1,5 +1,6 @@
 """Run and inspect Alembic migrations from Python (container start, tests, health)."""
 
+import logging
 from pathlib import Path
 
 from alembic import command
@@ -7,6 +8,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 ALEMBIC_INI = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
 
@@ -29,6 +32,7 @@ def alembic_config(database_url: str) -> Config:
 def upgrade_head(database_url: str) -> None:
     """Apply every pending migration to the database at `database_url`."""
     command.upgrade(alembic_config(database_url), "head")
+    logger.info("migrations_applied revision=%s", head_revision(database_url))
 
 
 def head_revision(database_url: str) -> str | None:

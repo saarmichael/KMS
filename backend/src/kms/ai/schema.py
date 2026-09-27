@@ -5,10 +5,13 @@ is stored. Validation catches missing fields and wrong types; everything that ca
 without asking the model again (length, case, duplicates) is fixed by `normalise` instead.
 """
 
+import logging
 import re
 from typing import Literal
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 ImageType = Literal["photo", "screenshot", "document", "diagram", "other"]
 
@@ -99,15 +102,30 @@ def normalise(metadata: Metadata, asset_type: str) -> Metadata:
         if tag and len(tag) <= TAG_MAX_CHARS and tag not in tags:
             tags.append(tag)
     tags = tags[: MAX_MODEL_TAGS[asset_type]]
+    tags_dropped = len(metadata.tags) - len(tags)
 
     for tag in type_tags(asset_type, image_type):
         if tag not in tags:
             tags.append(tag)
 
+    title = metadata.title.strip()
+    description = metadata.description.strip()
+    visible_text = metadata.visible_text.strip()
+    # Worth knowing when tuning the prompts: the model keeps answering longer than we store.
+    truncated = []
+    if len(title) > TITLE_MAX_CHARS:
+        truncated.append("title")
+    if len(description) > DESCRIPTION_MAX_CHARS:
+        truncated.append("description")
+    if len(visible_text) > VISIBLE_TEXT_MAX_CHARS:
+        truncated.append("visible_text")
+    if truncated or tags_dropped:
+        logger.info("metadata_trimmed truncated=%s tags_dropped=%d", truncated, tags_dropped)
+
     return Metadata(
-        title=metadata.title.strip()[:TITLE_MAX_CHARS],
-        description=metadata.description.strip()[:DESCRIPTION_MAX_CHARS],
+        title=title[:TITLE_MAX_CHARS],
+        description=description[:DESCRIPTION_MAX_CHARS],
         tags=tags,
-        visible_text=metadata.visible_text.strip()[:VISIBLE_TEXT_MAX_CHARS],
+        visible_text=visible_text[:VISIBLE_TEXT_MAX_CHARS],
         image_type=image_type,
     )

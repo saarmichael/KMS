@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Response
@@ -6,6 +7,8 @@ from sqlalchemy import delete, func, select
 from kms.api.schemas import COLLECTION_NAME_PATTERN, Collection, CollectionList
 from kms.db import get_engine
 from kms.models import assets
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -39,6 +42,7 @@ def delete_collection(name: Annotated[str, Path(pattern=COLLECTION_NAME_PATTERN)
         An empty 204, also when the collection held nothing.
     """
     with get_engine().begin() as connection:
-        connection.execute(delete(assets).where(assets.c.collection == name))
+        deleted = connection.execute(delete(assets).where(assets.c.collection == name))
+    logger.info("collection_deleted collection=%s assets=%d", name, deleted.rowcount)
     # Also 204 when nothing was deleted: deleting twice is not an error.
     return Response(status_code=204)

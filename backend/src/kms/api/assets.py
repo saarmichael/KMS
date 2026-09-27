@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
@@ -12,6 +13,8 @@ from kms.config import get_settings
 from kms.db import get_engine, notify_asset_pending
 from kms.ingest.upload import FileTooLarge, UnsupportedFileType, upload
 from kms.models import assets
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -59,8 +62,10 @@ def upload_asset(
     try:
         result = upload(collection, file.filename, data)
     except FileTooLarge as error:
+        logger.info("upload_rejected filename=%r status=413 reason=%r", file.filename, str(error))
         raise HTTPException(status_code=413, detail=str(error)) from None
     except UnsupportedFileType as error:
+        logger.info("upload_rejected filename=%r status=415 reason=%r", file.filename, str(error))
         raise HTTPException(status_code=415, detail=str(error)) from None
 
     if result.deduplicated:
@@ -112,7 +117,13 @@ def get_asset_file(asset_id: UUID) -> Response:
     """
     with get_engine().connect() as connection:
         asset_row = load_asset_or_404(connection, asset_id)
-    data = get_blob_store().get(asset_row["sha256"])
+    try:
+        data = get_blob_store().get(asset_row["sha256"])
+    except FileNotFoundError:
+        # The row exists but its bytes do not: the volume lost them. Still a 500, but a
+        # findable one.
+        logger.error("blob_missing asset_id=%s sha256=%s", asset_id, asset_row["sha256"])
+        raise
 
     # Upload accepts only UTF-8 text, so the charset is always true.
     content_type = asset_row["mime"]
@@ -166,4 +177,5 @@ def retry_asset(asset_id: UUID) -> Asset:
                 detail=f"Only a failed asset can be retried; this one is {asset_row['status']}.",
             )
         notify_asset_pending(connection, asset_id)
+    logger.info("asset_retried asset_id=%s", asset_id)
     return Asset.from_row(retried_row)

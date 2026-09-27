@@ -182,4 +182,5 @@ def upload(collection: str, filename: str, data: bytes) -> UploadResult:
         )
         connection.execute(append_alias)
         existing_asset = connection.execute(select(assets).where(same_bytes)).mappings().one()
+        logger.info("asset_deduplicated asset_id=%s filename=%r", existing_asset["id"], filename)
         return UploadResult(deduplicated=True, asset=existing_asset)

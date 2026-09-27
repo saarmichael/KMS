@@ -20,6 +20,7 @@ from kms.config import get_settings
 from kms.db import get_engine
 from kms.ingest.chunker import Chunk, chunk_text
 from kms.ingest.images import prepare_image, read_photo_details
+from kms.ingest.summary_source import choose_summary_source
 from kms.models import assets, search_units
 
 logger = logging.getLogger(__name__)
@@ -101,8 +102,8 @@ def process(asset: RowMapping) -> None:
         # "utf-8-sig" drops a byte-order mark, so offsets match the text a browser shows.
         text = data.decode("utf-8-sig")
         chunks = chunk_text(text, settings.chunk_size_chars, settings.chunk_overlap_chars)
-        # The whole file goes to the vision model until the summary source chooses the text.
-        content = text
+        summary_source = choose_summary_source(text, settings.summary_token_budget)
+        content = summary_source.text_for_description(text)
         photo_details = None
 
     description = get_vision().describe(

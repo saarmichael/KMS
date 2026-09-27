@@ -5,6 +5,7 @@ right data around, not that search understands meaning; that is the real models'
 """
 
 import hashlib
+import logging
 import math
 import random
 import re
@@ -13,6 +14,8 @@ from typing import Literal
 from kms.ai.fake_fixtures import FIXTURES
 from kms.ai.interfaces import Description, Embedder, PhotoDetails, Vision
 from kms.ai.schema import Metadata
+
+logger = logging.getLogger(__name__)
 
 # A file whose name contains this word always gets an answer that fails validation, so the
 # retry and failure paths can be shown without a real model misbehaving.
@@ -52,11 +55,13 @@ class FakeVision(Vision):
             pydantic.ValidationError: The filename contains "invalid".
         """
         if INVALID_MARKER in filename:
+            logger.info("fake_vision_invalid filename=%r", filename)
             # Parsing a broken answer raises the same error a bad real answer would.
             Metadata.model_validate_json(BROKEN_ANSWER)
 
         metadata = FIXTURES.get(filename)
         if metadata is None:
+            logger.info("fake_vision_generic filename=%r", filename)
             if asset_type == "image":
                 description, image_type = "An uploaded image.", "other"
             else:

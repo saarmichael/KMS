@@ -1,9 +1,13 @@
 """The process-wide vision and embedding adapters, chosen by AI_PROVIDER on first use
 (same pattern as blob.get_blob_store)."""
 
+import logging
+
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.interfaces import Embedder, Vision
 from kms.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 REAL_NOT_AVAILABLE = "AI_PROVIDER=real is not available yet"
 
@@ -25,6 +29,7 @@ def get_vision() -> Vision:
         if get_settings().ai_provider == "real":
             raise NotImplementedError(REAL_NOT_AVAILABLE)
         _vision = FakeVision()
+        logger.info("ai_adapters_selected provider=fake vision=%s", _vision.model)
     return _vision
 
 
@@ -43,6 +48,7 @@ def get_embedder() -> Embedder:
         if settings.ai_provider == "real":
             raise NotImplementedError(REAL_NOT_AVAILABLE)
         _embedder = FakeEmbedder(settings.embedding_dims)
+        logger.info("ai_adapters_selected provider=fake embedder=%s", _embedder.model)
     return _embedder
 
 

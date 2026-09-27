@@ -5,7 +5,10 @@ whole. The chunks are built from the full text separately, so every passage stay
 whatever the description was made from.
 """
 
+import logging
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 # A rough estimate, close enough for English prose; no tokenizer is needed to stay well inside
 # the model's context.
@@ -90,4 +93,8 @@ def choose_summary_source(text: str, token_budget: int) -> SummarySource:
     """
     if len(text) <= token_budget * CHARS_PER_TOKEN:
         return WholeFile()
+    # Only the beginning of the file shapes its description; its chunks still cover all of it.
+    logger.info(
+        "summary_head_only chars=%d budget_chars=%d", len(text), token_budget * CHARS_PER_TOKEN
+    )
     return Head(token_budget)

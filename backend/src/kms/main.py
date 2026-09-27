@@ -1,5 +1,7 @@
 """App factory. The built SPA (if present) is served for every non-API path."""
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -8,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from kms.api import assets, collections, health
 from kms.config import get_settings
 from kms.logs import configure_logging
+
+logger = logging.getLogger(__name__)
 
 
 def flatten_validation_error(
@@ -41,8 +45,14 @@ def create_app() -> FastAPI:
     app.include_router(assets.router)
     app.include_router(collections.router)
 
-    static = get_settings().static_dir
+    settings = get_settings()
+    static = settings.static_dir
     index = static / "index.html"
+    logger.info(
+        "app_started ui=%s worker=%s",
+        "built" if index.exists() else "none",
+        "on" if settings.worker_enabled else "off",
+    )
     if index.exists():
         app.mount("/assets", StaticFiles(directory=static / "assets"), name="spa-assets")
 
