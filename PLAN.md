@@ -758,3 +758,23 @@ D26 recording. The former Phases 4–8 are now 5–9. No code changed except the
   live demo run by Michael on the Railway URL after `railway up`: `202` then `200 deduplicated` with the alias, the
   file served from the volume with `ETag` and `immutable` cache headers. Merged to `main` and tagged `phase-2` on
   Sep 27, 2026.
+
+### Phase 3 — Sep 27, 2026
+
+- **Built.** `ai/schema.py` (`Metadata`, `normalise` with the fixed type tags), `ai/interfaces.py` (`Vision`,
+  `Embedder`), `ai/fake.py` with the seed fixtures, `ingest/images.py` (prepared JPEG, photo date and place),
+  `ingest/summary_source.py`, `ingest/chunker.py`, `ingest/worker.py` (claim, process, commit guarded by the lease,
+  failed attempts, reaper), `ingest/pool.py` (`WorkerPool`: worker threads, one listener, the reaper every minute),
+  `kms worker`, `kms/logs.py`, and the filename unit. Worked on branch `phase-3`.
+- **Deviations.** The chunker was built with the worker, not at the end (D44), and is naive (D46). `run_forever()`
+  became `WorkerPool._work_loop` in `ingest/pool.py`, which also holds the listener. Added in the phase: photo date and
+  place for the vision call (D45), the filename unit (D48, with the `"filename"` snippet kind in the contract for
+  Phases 5 and 7), MPO phone photos accepted as `image/jpeg` (found in the UI run: most seed photos were rejected with
+  a `415`). Ruff now treats `alembic` as third-party, and `make lint` runs each check in its own shell.
+- **Decisions taken.** D43–D48. The section's open questions were settled in the part plans and are listed in
+  `docs/claude-recommendations.md`.
+- **Gate.** `make test` green (89 tests). Local demo run by Claude on a real uvicorn server against the dev database:
+  upload → `ready` with units written; `kms worker` picking up a file uploaded with the worker off; a dead worker's
+  claim (staged in SQL, since a fake job takes about 10 ms) released by the reaper and finished as attempt 2; the
+  invalid mode failing three times, then Retry. UI checklist run by Michael locally. Gate cleared by Michael; merged
+  to `main` and tagged `phase-3` on Sep 27, 2026.
