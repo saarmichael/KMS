@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 # Pillow's format name → the mime type stored on the asset.
 ACCEPTED_IMAGE_FORMATS = {
     "JPEG": "image/jpeg",
+    # Phone photos are often MPO: a JPEG with extra pictures (a depth map, an HDR gain map)
+    # after the main one. Browsers show the main picture, so to everyone else it is a JPEG.
+    "MPO": "image/jpeg",
     "PNG": "image/png",
     "WEBP": "image/webp",
 }

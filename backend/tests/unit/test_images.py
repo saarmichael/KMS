@@ -37,6 +37,19 @@ def test_output_is_jpeg(image_format):
     assert decode(prepare_image(data)).format == "JPEG"
 
 
+def test_mpo_photo_prepared_as_plain_jpeg():
+    buffer = io.BytesIO()
+    depth_map = Image.new("RGB", (20, 15), "blue")
+    Image.new("RGB", (40, 30), "red").save(
+        buffer, format="MPO", save_all=True, append_images=[depth_map]
+    )
+    assert decode(buffer.getvalue()).format == "MPO"
+
+    prepared = decode(prepare_image(buffer.getvalue()))
+    assert prepared.format == "JPEG"
+    assert prepared.size == (40, 30)
+
+
 def test_large_image_downscaled_keeping_aspect():
     data = encode(Image.new("RGB", (2048, 1536), "blue"))
     assert decode(prepare_image(data)).size == (1024, 768)

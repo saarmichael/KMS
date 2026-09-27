@@ -20,6 +20,15 @@ def test_accepted_image_formats_are_images(image_format, mime):
     assert sniff(image_bytes(image_format)) == ("image", mime)
 
 
+def test_mpo_photo_is_a_jpeg():
+    buffer = io.BytesIO()
+    depth_map = Image.new("RGB", (2, 2), "blue")
+    Image.new("RGB", (4, 4), "red").save(
+        buffer, format="MPO", save_all=True, append_images=[depth_map]
+    )
+    assert sniff(buffer.getvalue()) == ("image", "image/jpeg")
+
+
 def test_utf8_text_is_text():
     assert sniff("Café notes, black hair.\n".encode()) == ("text", "text/plain")
     assert sniff(b"\xef\xbb\xbfwith a byte-order mark") == ("text", "text/plain")
