@@ -18,12 +18,12 @@ dependencies = [
     "google-genai",
     "voyageai",
     "tenacity",
+    "httpx",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
-    "httpx",
     "ruff",
 ]
 

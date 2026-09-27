@@ -444,7 +444,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | # | Part | Holds | Status |
 | --- | --- | --- | --- |
 | 1 | The answering model is stored | Migration 0002 adds `assets.vision_model`; the worker writes `description.model`; the API returns it | done |
-| 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | not planned |
+| 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | done |
 | 3 | `GeminiVision` and prompts | `ai/prompts/` (image, text, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | not planned |
 | 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | not planned |
 | 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | not planned |
@@ -483,6 +483,35 @@ Open points, settled in the part named:
   The health test proves 0002 applies.
 - *Demo:* `make migrate`; `/api/health` at `0002`; a new upload shows `"vision_model": "fake-vision"`; the
   stored seed assets show `null`.
+
+**Part 2 plan (approved Sep 27).**
+
+- *Kinds:* `classify(error: Exception) -> ErrorKind`, never raises. `ErrorKind` is a `StrEnum` (`TRANSIENT`,
+  `OVERLOADED`, `PERMANENT`; prints as its value in logs); status codes are written as `http.HTTPStatus`
+  members. Amended Sep 27 on Michael's request, replacing a `Literal` of strings and bare numbers.
+  Overloaded: Gemini 503 and every Gemini 429 (all its quotas are per model). Transient: Gemini 500/502/504,
+  `httpx.TransportError`; Voyage 429, 5xx, `Timeout`, `APIConnectionError`. Permanent: everything else (400,
+  401/403, 402, 404, 413, 422, safety block raised by Part 3, validation errors, unknown errors).
+- *Fallback and backoff together:* `call_with_retries` retries anything not permanent. Part 3 wraps the whole
+  model walk in one call: overloaded → next model inside the walk; all overloaded, or a transient error →
+  the walk raises, backoff, restart at the first model. D23's "any other error fails at once" read as "does
+  not move to the next model".
+- *Waits:* Gemini's `RetryInfo.retryDelay` when present, else 1, 4, 16 s plus 0–1 s jitter
+  (`wait_exponential(exp_base=4)` + `wait_random(0, 1)`); at most `MAX_CALL_ATTEMPTS = 4`; a server wait over
+  `MAX_SERVER_WAIT_SECONDS = 60` is raised at once. Constants, not settings.
+- *Functions:* `server_retry_delay(error: Exception) -> float | None` (seconds from RetryInfo, `None` when
+  absent or malformed, never raises); `call_with_retries(call: Callable[[], T], description: str) -> T`
+  (tenacity `Retrying` with `reraise=True`; the original error is re-raised; each wait logged as
+  `vendor_retry call= attempt= kind= wait_s= error=`).
+- *Files:* new `ai/errors.py`, new `tests/unit/test_errors.py`; `httpx` becomes a direct dependency (already
+  installed through google-genai). No settings.
+- *Tests (unit 4):* `test_gemini_429_and_503_are_overloaded`, `test_gemini_500_502_504_are_transient`,
+  `test_gemini_client_errors_are_permanent`, `test_voyage_rate_limit_server_and_network_errors_are_transient`,
+  `test_voyage_auth_and_bad_request_are_permanent`, `test_network_errors_are_transient`,
+  `test_unknown_error_is_permanent`, `test_server_retry_delay_is_read_from_retry_info`,
+  `test_retries_a_transient_error_then_succeeds`, `test_permanent_error_is_raised_at_once`,
+  `test_gives_up_after_four_attempts`, `test_waits_as_long_as_the_server_asks`,
+  `test_server_wait_over_the_cap_is_raised_at_once`. Sleep patched with `monkeypatch`; errors built by hand.
 
 ---
 
