@@ -438,6 +438,52 @@ boot; the live URL stays on fake adapters until Phase 6.
 **Decisions to take.** Output token limit for `visible_text`. Whether the repair retry re-sends the image
 (cost) or only the text. Where `AI_CACHE_DIR` defaults to (recordings are committed, D26).
 
+**Parts.** Agreed Sep 27. Work on branch `phase-4`. Each part gets its own plan, approved before its code;
+the next part starts only when Michael says so. Vendor-free parts first, real vendor calls last.
+
+| # | Part | Holds | Status |
+| --- | --- | --- | --- |
+| 1 | The answering model is stored | Migration 0002 adds `assets.vision_model`; the worker writes `description.model`; the API returns it | done |
+| 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | not planned |
+| 3 | `GeminiVision` and prompts | `ai/prompts/` (image, text, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | not planned |
+| 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | not planned |
+| 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | not planned |
+| 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | not planned |
+| 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
+| 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; commit the recordings (D26). An operational run, not new code | not planned |
+
+Open points, settled in the part named:
+
+- Part 3: the `visible_text` output token limit; whether the repair retry re-sends the image. Where the
+  repair retry lives: inside `GeminiVision` (tested with a stubbed client) or as a wrapper around any
+  `Vision` (then `FakeVision` gets the "invalid once" mode the test plan names).
+- Part 5: the `AI_CACHE_DIR` default.
+- Part 8: committing recordings (D26) puts real model output about the personal seed photos in git
+  (places from GPS, text read off documents), while D43 keeps the photos out. Michael's call before Part 8.
+- Parts 7 and 8 need Gemini credit: the last spike call answered `402` on every model.
+
+**Part 1 plan (approved Sep 27).**
+
+- *How the model reaches the row:* a new parameter on `commit_ready`. Not a field on `Metadata` (that is the
+  schema Gemini fills, so the model would be asked for its own name); not the whole `Description` (it holds
+  the raw answer, `commit_ready` the normalised one).
+- *Column:* `assets.vision_model TEXT NULL`, no default, no backfill; rows described earlier stay `null`
+  (unknown). Retry leaves it alone: a failed asset never had metadata written.
+- *Files:* new `alembic/versions/0002_assets_vision_model.py` (`upgrade()` adds the column, `downgrade()`
+  drops it); `models.py` gains the column after `image_type`, docstring "Mirrors the migrations exactly";
+  `ingest/worker.py` `process()` passes `description.model`; `api/schemas.py` `Asset.from_row` reads the
+  column. No new dependency or setting.
+- *Function:* `commit_ready(asset, metadata, vision_model: str, units, vectors) -> bool`, writes
+  `vision_model` in the same update that sets `ready`; return and lease behaviour unchanged.
+- *Contract:* only the comment on `vision_model` changes, to "null for assets described before the column
+  existed". Shape unchanged, no frontend change.
+- *Tests:* `test_image_becomes_ready_with_metadata_image_and_filename_units` asserts `vision_model ==
+  "fake-vision"`; `test_stale_worker_cannot_commit` passes the argument; new
+  `test_ready_asset_reports_the_model_that_described_it` (upload, `run_once()`, `GET` shows `fake-vision`).
+  The health test proves 0002 applies.
+- *Demo:* `make migrate`; `/api/health` at `0002`; a new upload shows `"vision_model": "fake-vision"`; the
+  stored seed assets show `null`.
+
 ---
 
 ## Phase 5 — Search

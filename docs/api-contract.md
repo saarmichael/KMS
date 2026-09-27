@@ -91,7 +91,7 @@ type AssetMetadata = {
   tags: string[];             // lowercase, may be multi-word ("travel notes")
   visible_text: string | null;   // images only: every readable word in the image; null for text files
   image_type: "photo" | "screenshot" | "document" | "diagram" | "other" | null;  // null for text files
-  vision_model: string | null;   // which Gemini model wrote it; null until Phase 4 adds the column
+  vision_model: string | null;   // which Gemini model wrote it; null for assets described before the column existed
 };
 ```
 

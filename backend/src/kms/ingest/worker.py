@@ -115,7 +115,7 @@ def process(asset: RowMapping) -> None:
 
     units = build_units(asset["asset_type"], asset["filename"], metadata, prepared_image, chunks)
     vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
-    commit_ready(asset, metadata, units, vectors)
+    commit_ready(asset, metadata, description.model, units, vectors)
 
 
 def metadata_body(metadata: Metadata) -> str:
@@ -187,6 +187,7 @@ def build_units(
 def commit_ready(
     asset: RowMapping,
     metadata: Metadata,
+    vision_model: str,
     units: list[Unit],
     vectors: list[list[float]],
 ) -> bool:
@@ -198,6 +199,7 @@ def commit_ready(
     Args:
         asset: The row returned by `claim_one`.
         metadata: The normalised metadata.
+        vision_model: The id of the model that wrote `metadata`.
         units: The asset's units, in the order they were embedded.
         vectors: One vector per unit, in the same order.
 
@@ -217,6 +219,7 @@ def commit_ready(
             tags=metadata.tags,
             visible_text=metadata.visible_text,
             image_type=metadata.image_type,
+            vision_model=vision_model,
         )
     )
     unit_rows = []

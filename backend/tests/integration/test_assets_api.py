@@ -4,6 +4,7 @@ import uuid
 from sqlalchemy import text
 
 from kms.db import ASSET_PENDING_CHANNEL, listen_connection
+from kms.ingest.worker import run_once
 
 NOTE = b"A short note about a woman with black hair.\n"
 OTHER_NOTE = b"The quarterly report is on the desk.\n"
@@ -94,6 +95,16 @@ def test_unknown_asset_is_404(client):
         assert response.json() == {"detail": "Asset not found."}
     assert client.post(f"/api/assets/{unknown_id}/retry").status_code == 404
     assert client.get("/api/assets/not-a-uuid").status_code == 422
+
+
+def test_ready_asset_reports_the_model_that_described_it(client):
+    asset = post_file(client, "a.txt", NOTE).json()["asset"]
+
+    assert run_once() is True
+
+    response = client.get(f"/api/assets/{asset['id']}")
+    assert response.status_code == 200
+    assert response.json()["metadata"]["vision_model"] == "fake-vision"
 
 
 def test_file_has_etag_and_immutable_cache_headers(client):

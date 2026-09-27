@@ -62,6 +62,7 @@ def test_image_becomes_ready_with_metadata_image_and_filename_units(db, blob_sto
     assert asset["status"] == "ready"
     assert asset["title"] == "Car key on a red umbrella hook"
     assert asset["image_type"] == "photo"
+    assert asset["vision_model"] == "fake-vision"
     assert asset["tags"][-4:] == ["image", "picture", "photo", "photograph"]
     units = load_units(db, asset_id)
     assert [unit["kind"] for unit in units] == ["filename", "image", "metadata"]
@@ -202,6 +203,6 @@ def test_stale_worker_cannot_commit(db, blob_store):
     units = build_units("text", "slow.txt", metadata, None, [])
     vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
 
-    assert commit_ready(stale_claim, metadata, units, vectors) is False
+    assert commit_ready(stale_claim, metadata, "fake-vision", units, vectors) is False
     assert load_asset(db, asset_id)["status"] == "processing"
     assert load_units(db, asset_id) == []

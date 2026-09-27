@@ -59,8 +59,7 @@ class Asset(BaseModel):
                 tags=row["tags"],
                 visible_text=row["visible_text"],
                 image_type=row["image_type"],
-                # No column holds the answering model yet.
-                vision_model=None,
+                vision_model=row["vision_model"],
             )
         return cls(
             id=row["id"],

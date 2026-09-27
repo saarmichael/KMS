@@ -1,4 +1,4 @@
-"""The two tables, as SQLAlchemy Core metadata. Mirrors migration 0001 exactly.
+"""The two tables, as SQLAlchemy Core metadata. Mirrors the migrations exactly.
 
 Alembic uses this metadata to draft later migrations; queries use these table objects.
 """
@@ -48,6 +48,7 @@ assets = Table(
     Column("tags", ARRAY(Text)),
     Column("visible_text", Text),
     Column("image_type", Text),  # photo screenshot document diagram other; null for text
+    Column("vision_model", Text),
     Column("metadata_version", Integer, nullable=False, server_default="1"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
     UniqueConstraint("collection", "sha256", name="uq_assets_collection_sha256"),
