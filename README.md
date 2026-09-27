@@ -11,6 +11,33 @@ alternatives weighed, and what was deliberately left out — the source of
 truth this README summarises) · [Test plan](docs/TESTING.md) ·
 [API contract](docs/api-contract.md)
 
+## Install and run locally
+
+Needs [Docker](https://docs.docker.com/get-docker/) (running),
+[uv](https://docs.astral.sh/uv/) and [Node](https://nodejs.org/). uv fetches
+Python 3.13 and the backend packages on the first `make` command; the
+frontend packages come from the `npm install` below.
+
+```sh
+cp backend/.env.example backend/.env   # every variable, with a comment
+cd frontend && npm install && cd ..
+make dev                               # Postgres, migrations, API on :8000, UI on :5173
+```
+
+By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
+and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
+`VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
+`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`.
+
+| Command | What it does |
+|---|---|
+| `make test` | Unit and integration tests, fake adapters, separate `kms_test` database |
+| `make test-live` | Adds the tests against the real vendors (needs both keys) |
+| `make lint` | ruff for the backend, oxlint for the frontend |
+| `make build` | Builds the SPA into the backend, then the container image |
+| `docker compose --profile full up --build` | Runs the production container locally |
+| `make seed` / `make matrix` | Ingests the demo files / runs the assignment's queries against them |
+
 ## Architecture
 
 ```mermaid
@@ -101,30 +128,6 @@ match is never dropped.
 | Embeddings | voyage-multimodal-3.5, 1024 dims |
 | Migrations | Alembic, run at container start |
 | Hosting | Railway (app + Postgres + volume) |
-
-## Running locally
-
-Needs Docker, [uv](https://docs.astral.sh/uv/) and Node.
-
-```sh
-cp backend/.env.example backend/.env   # every variable, with a comment
-cd frontend && npm install && cd ..
-make dev                               # Postgres, migrations, API on :8000, UI on :5173
-```
-
-By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
-and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
-`VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
-`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`.
-
-| Command | What it does |
-|---|---|
-| `make test` | Unit and integration tests, fake adapters, separate `kms_test` database |
-| `make test-live` | Adds the tests against the real vendors (needs both keys) |
-| `make lint` | ruff for the backend, oxlint for the frontend |
-| `make build` | Builds the SPA into the backend, then the container image |
-| `docker compose --profile full up --build` | Runs the production container locally |
-| `make seed` / `make matrix` | Ingests the demo files / runs the assignment's queries against them |
 
 ## Deliberately out of scope
 
