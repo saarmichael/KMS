@@ -1117,7 +1117,7 @@ collection, upload, search. Ten minutes, the interviewer's script.
 | --- | --- | --- |
 | 1 | Backend and contract: splitter, the sentence step in the search, two snippet fields | done (20e5f2e) |
 | 2 | Frontend: types, mock, card preview and dialog tint | done (5bc2032) |
-| 3 | Every snippet kind: descriptions and file names too, offsets in `text`, one shared component | implemented, awaiting review |
+| 3 | Every snippet kind: descriptions and file names too, offsets in `text`, one shared component | done (adda639) |
 
 **Item 3, Part 1 plan (approved Sep 27).** Settled: our own embedder, not Jev; computed during the search,
 only for the page; only for `semantic` results whose snippet kind is `content`; `pysbd` as the splitter (amended Sep 27:
@@ -1186,8 +1186,8 @@ and `test_filename_snippet_is_one_sentence`; offsets in the unit and integration
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Backend and contract: the new unit, its snippet, the `found_in` value | implemented, awaiting review |
-| 2 | Frontend: type, card label, chip, dialog, mock; browser check | implemented, awaiting review |
+| 1 | Backend and contract: the new unit, its snippet, the `found_in` value | done (adda639) |
+| 2 | Frontend: type, card label, chip, dialog, mock; browser check | done (adda639) |
 
 **Item 4, Part 1 plan (approved Sep 27).** Settled: the unit kind is `visible_text`, after the field it holds;
 its own filter chip; no migration; existing collections are wiped and uploaded again, no reindex command.
