@@ -17,7 +17,18 @@ router = APIRouter()
 
 
 def load_asset_or_404(connection: Connection, asset_id: UUID) -> RowMapping:
-    """The asset's row; a 404 for the caller if there is no such asset."""
+    """Load one asset's row.
+
+    Args:
+        connection: An open database connection.
+        asset_id: The asset to load.
+
+    Returns:
+        The asset's row.
+
+    Raises:
+        HTTPException: 404 if there is no such asset.
+    """
     asset_row = connection.execute(select(assets).where(assets.c.id == asset_id)).mappings().first()
     if asset_row is None:
         raise HTTPException(status_code=404, detail="Asset not found.")
@@ -30,7 +41,19 @@ def upload_asset(
     collection: Annotated[str, Form(pattern=COLLECTION_NAME_PATTERN)],
     response: Response,
 ) -> UploadResponse:
-    """Store one file in a collection: 202 for a new file, 200 for bytes it already holds."""
+    """Store one file in a collection: 202 for a new file, 200 for bytes it already holds.
+
+    Args:
+        file: The uploaded file.
+        collection: The collection to store it in.
+        response: The outgoing response, so a duplicate can turn its status into 200.
+
+    Returns:
+        The asset, and whether its bytes were already stored.
+
+    Raises:
+        HTTPException: 413 if the file is over the size limit, 415 if its type is not accepted.
+    """
     # One byte past the limit is enough to know the file is too large, without reading all of it.
     data = file.file.read(get_settings().max_upload_bytes + 1)
     try:
@@ -49,7 +72,11 @@ def upload_asset(
 def list_assets(
     collection: Annotated[str, Query(pattern=COLLECTION_NAME_PATTERN)],
 ) -> AssetList:
-    """Every asset of a collection, in any status, newest first."""
+    """Every asset of a collection, in any status, newest first.
+
+    Args:
+        collection: The collection to list.
+    """
     newest_first = (
         select(assets).where(assets.c.collection == collection).order_by(assets.c.created_at.desc())
     )
@@ -60,6 +87,11 @@ def list_assets(
 
 @router.get("/api/assets/{asset_id}")
 def get_asset(asset_id: UUID) -> Asset:
+    """One asset, in any status.
+
+    Raises:
+        HTTPException: 404 if there is no such asset.
+    """
     with get_engine().connect() as connection:
         asset_row = load_asset_or_404(connection, asset_id)
     return Asset.from_row(asset_row)
@@ -67,7 +99,17 @@ def get_asset(asset_id: UUID) -> Asset:
 
 @router.get("/api/assets/{asset_id}/file")
 def get_asset_file(asset_id: UUID) -> Response:
-    """The file's bytes, cached by the browser for good: an asset's bytes never change."""
+    """The file's bytes, cached by the browser for good: an asset's bytes never change.
+
+    Args:
+        asset_id: The asset whose file to send.
+
+    Returns:
+        The bytes, to be shown inline, with the file's sha256 as ETag.
+
+    Raises:
+        HTTPException: 404 if there is no such asset.
+    """
     with get_engine().connect() as connection:
         asset_row = load_asset_or_404(connection, asset_id)
     data = get_blob_store().get(asset_row["sha256"])
@@ -95,7 +137,17 @@ def get_asset_file(asset_id: UUID) -> Response:
 
 @router.post("/api/assets/{asset_id}/retry")
 def retry_asset(asset_id: UUID) -> Asset:
-    """Put a failed asset back in the queue with a fresh attempt count."""
+    """Put a failed asset back in the queue with a fresh attempt count.
+
+    Args:
+        asset_id: The asset to retry.
+
+    Returns:
+        The asset, now pending.
+
+    Raises:
+        HTTPException: 404 if there is no such asset, 409 if it is not failed.
+    """
     # The status check is part of the update, so a double click cannot re-queue an asset
     # that a worker has already picked up.
     reset_failed_asset = (

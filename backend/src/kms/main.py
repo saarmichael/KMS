@@ -12,7 +12,17 @@ from kms.config import get_settings
 def flatten_validation_error(
     request: Request, validation_error: RequestValidationError
 ) -> JSONResponse:
-    """FastAPI reports invalid input as a list of error objects; the API promises one string."""
+    """Turn FastAPI's validation errors into the API's single-string `detail`.
+
+    FastAPI reports invalid input as a list of error objects; the API promises one string.
+
+    Args:
+        request: The failing request; unused, but part of FastAPI's handler signature.
+        validation_error: The error FastAPI raised for the invalid input.
+
+    Returns:
+        A 422 response whose `detail` joins every "field: message" with "; ".
+    """
     messages = []
     for error in validation_error.errors():
         # The location ends with the parameter's name, e.g. ("query", "collection").
@@ -22,6 +32,7 @@ def flatten_validation_error(
 
 
 def create_app() -> FastAPI:
+    """Build the app: the API routers, plus the built SPA when `static_dir` holds one."""
     app = FastAPI(title="KMS", version="0.1.0")
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
     app.include_router(health.router)
@@ -35,6 +46,7 @@ def create_app() -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
+            """Serve a file of the built SPA, or `index.html` so the SPA's router takes the path."""
             file = static / path
             if path and file.is_file():
                 return FileResponse(file)

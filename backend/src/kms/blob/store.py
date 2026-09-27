@@ -11,22 +11,41 @@ from pathlib import Path
 
 
 class BlobStore(ABC):
+    """File bytes stored under their sha256, whatever the storage behind them."""
+
     @abstractmethod
     def put(self, sha256: str, data: bytes) -> None:
-        """Store the bytes under their hash; do nothing if the hash is already stored."""
+        """Store the bytes under their hash; do nothing if the hash is already stored.
+
+        Args:
+            sha256: The hex sha256 of `data`.
+            data: The file's bytes.
+        """
 
     @abstractmethod
     def get(self, sha256: str) -> bytes:
-        """Return the bytes stored under the hash; raise FileNotFoundError if there are none."""
+        """Return the bytes stored under the hash.
+
+        Args:
+            sha256: The hex sha256 of the wanted bytes.
+
+        Returns:
+            The stored bytes.
+
+        Raises:
+            FileNotFoundError: Nothing is stored under this hash.
+        """
 
 
 class LocalBlobStore(BlobStore):
     """One flat folder, one file per hash: `<root>/<sha256>`."""
 
     def __init__(self, root: Path):
+        """Keep the files in `root`; the folder is created on the first put."""
         self.root = root
 
     def put(self, sha256: str, data: bytes) -> None:
+        """Write `<root>/<sha256>` in one atomic step, unless it already exists."""
         final_path = self.root / sha256
         if final_path.exists():
             return
@@ -38,4 +57,5 @@ class LocalBlobStore(BlobStore):
         os.replace(temporary_path, final_path)
 
     def get(self, sha256: str) -> bytes:
+        """Read `<root>/<sha256>`; raise FileNotFoundError if it is missing."""
         return (self.root / sha256).read_bytes()
