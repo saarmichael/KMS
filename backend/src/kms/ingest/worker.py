@@ -15,6 +15,7 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import RowMapping
 
 from kms.ai import get_embedder, get_vision
+from kms.ai.interfaces import PhotoDetails
 from kms.ai.schema import Metadata, normalise
 from kms.blob import get_blob_store
 from kms.config import get_settings
@@ -80,6 +81,64 @@ def claim_one() -> RowMapping | None:
     return asset
 
 
+@dataclass(frozen=True)
+class PreparedFile:
+    """A file made ready for the AI calls.
+
+    Attributes:
+        content: What the vision model sees: the prepared JPEG for an image, the summary text
+            for a text file.
+        photo_details: When and where a photo was taken; None for a text file and for an image
+            that carries neither.
+        prepared_image: The prepared JPEG for an image; None for a text file.
+        chunks: The text file's chunks; empty for an image.
+    """
+
+    content: bytes | str
+    photo_details: PhotoDetails | None
+    prepared_image: bytes | None
+    chunks: list[Chunk]
+
+
+def prepare_file(data: bytes, asset_type: str) -> PreparedFile:
+    """Prepare a file's bytes for the vision and embedding calls.
+
+    The worker and the command line both prepare through here, so the same file always sends
+    the same inputs and a recorded call is replayed.
+
+    Args:
+        data: The file's bytes.
+        asset_type: "image" or "text".
+
+    Returns:
+        The vision model's input, the photo details, the prepared image and the chunks.
+
+    Raises:
+        OSError: An image's bytes cannot be decoded (raised by `prepare_image`).
+        UnicodeDecodeError: A text file is not valid UTF-8.
+    """
+    settings = get_settings()
+    if asset_type == "image":
+        prepared_image = prepare_image(data)
+        return PreparedFile(
+            content=prepared_image,
+            photo_details=read_photo_details(data),
+            prepared_image=prepared_image,
+            chunks=[],
+        )
+
+    # "utf-8-sig" drops a byte-order mark, so offsets match the text a browser shows.
+    text = data.decode("utf-8-sig")
+    chunks = chunk_text(text, settings.chunk_size_chars, settings.chunk_overlap_chars)
+    summary_source = choose_summary_source(text, settings.summary_token_budget)
+    return PreparedFile(
+        content=summary_source.text_for_description(text),
+        photo_details=None,
+        prepared_image=None,
+        chunks=chunks,
+    )
+
+
 def process(asset: RowMapping) -> None:
     """Describe, split and embed one claimed asset, then commit the results.
 
@@ -90,30 +149,18 @@ def process(asset: RowMapping) -> None:
         Exception: Whatever a step raises (missing blob, undecodable image, invalid AI answer,
             vendor error); the caller records it as a failed attempt.
     """
-    settings = get_settings()
     data = get_blob_store().get(asset["sha256"])
-
-    if asset["asset_type"] == "image":
-        prepared_image = prepare_image(data)
-        chunks = []
-        content = prepared_image
-        photo_details = read_photo_details(data)
-    else:
-        prepared_image = None
-        # "utf-8-sig" drops a byte-order mark, so offsets match the text a browser shows.
-        text = data.decode("utf-8-sig")
-        chunks = chunk_text(text, settings.chunk_size_chars, settings.chunk_overlap_chars)
-        summary_source = choose_summary_source(text, settings.summary_token_budget)
-        content = summary_source.text_for_description(text)
-        photo_details = None
+    prepared = prepare_file(data, asset["asset_type"])
 
     description = get_vision().describe(
-        content, asset["asset_type"], asset["filename"], photo_details
+        prepared.content, asset["asset_type"], asset["filename"], prepared.photo_details
     )
     logger.info("asset_described asset_id=%s model=%s", asset["id"], description.model)
     metadata = normalise(description.metadata, asset["asset_type"])
 
-    units = build_units(asset["asset_type"], asset["filename"], metadata, prepared_image, chunks)
+    units = build_units(
+        asset["asset_type"], asset["filename"], metadata, prepared.prepared_image, prepared.chunks
+    )
     vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
     commit_ready(asset, metadata, description.model, units, vectors)
 

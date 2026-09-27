@@ -448,7 +448,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 3 | `GeminiVision` and prompts | `ai/prompts.py` (image, text, repair, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | done |
 | 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | done |
 | 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | implemented, awaiting Michael's review |
-| 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | not planned |
+| 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | done |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
 | 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; commit the recordings (D26). An operational run, not new code | not planned |
 
@@ -625,6 +625,37 @@ are a development aid, not a production cache.
   `test_failed_call_is_not_recorded`, `test_real_provider_records_only_when_cache_dir_is_set`.
 - *Demo:* `AI_PROVIDER=real`: upload the screenshot → `ready`, two files in `backend/recordings/`. Empty the tables,
   upload again → `ready`, same metadata, `recording_hit` twice, no `vision_call` in the log.
+
+**Part 6 plan (approved Sep 27).** Planned as if Part 5 were done. Michael took Claude's proposal as written.
+
+- *Same preparation as the worker:* `process()`'s inline preparation (image: `prepare_image`,
+  `read_photo_details`; text: decode, `chunk_text`, summary source) moves into `prepare_file` in
+  `ingest/worker.py`; the worker and the CLI both call it, so a CLI call is byte-identical to the worker's and
+  hits its recordings. Chosen over a copy in `cli.py`, which could drift.
+- *Type:* from the bytes via `upload.sniff()`; no size cap (local tool). The filename given to `describe` is
+  `path.name`, so fake mode prints the fixture.
+- *`embed` inputs:* what the worker embeds without metadata: an image's prepared JPEG, a text file's chunks. All
+  files in one `embed()` call, `input_type="document"`. Query embeddings wait for Phase 5.
+- *Output (stdout; logs stay on stderr):* `describe` prints JSON `{"model", "photo_details", "metadata"}`, metadata
+  validated, not normalised. `embed` prints one line per input, `<file> <kind> <index> dims= norm= [first 4
+  values]`, then `model= inputs= seconds=`. No full vectors.
+- *Errors:* any exception → `error: <ErrorClass>: <message>` on stderr, exit 1. A missing file argument prints the
+  usage, exit 2. Arguments still read from `sys.argv`, not `argparse`.
+- *Recording:* through `get_vision()` / `get_embedder()`, so `AI_CACHE_DIR` applies as in the worker.
+- *Files:* changed `cli.py`, `ingest/worker.py`; new `tests/unit/test_cli.py`. No new dependency or setting.
+- *Code:* `PreparedFile` (frozen dataclass: `content: bytes | str`, `photo_details: PhotoDetails | None`,
+  `prepared_image: bytes | None`, `chunks: list[Chunk]`); `prepare_file(data: bytes, asset_type: str) ->
+  PreparedFile` (reads chunk and summary settings; raises what `prepare_image` or decoding raises). In `cli.py`:
+  `load_file(path: Path) -> tuple[str, PreparedFile]` (read, sniff, prepare; raises `OSError`,
+  `UnsupportedFileType`); `describe_command(path: Path) -> int`; `embed_command(paths: list[Path]) -> int`;
+  `main()` gains both branches and exits with the code; usage `kms migrate | worker | describe <file> | embed
+  <file>...`.
+- *Tests (fake provider, `tmp_path`, `capsys`):* `test_describe_prints_the_fixture_for_a_known_file`,
+  `test_describe_passes_photo_details_for_a_photo`, `test_embed_prints_one_line_per_input` (two-chunk text + an
+  image → 3 lines + summary), `test_unsupported_file_is_an_error`, `test_missing_file_is_an_error`. The worker's
+  integration tests cover the `process()` refactor.
+- *Demo:* `uv run kms describe <spike screenshot>` with fake, then real; a second real run shows `recording_hit`
+  and no `vision_call`. `uv run kms embed <note> <screenshot>` prints 1,024-dim lines and the timing.
 
 ---
 
