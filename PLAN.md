@@ -754,9 +754,10 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
 5. `search/service.py`: embed the query through a cached function (`functools.lru_cache`, size
    `QUERY_CACHE_SIZE`, keyed on model + normalised query; no separate cache module) and run keyword
    concurrently with it (thread pool of 2), fuse, group, no-op rerank, page `(offset, limit)` with cap 100,
-   one final fetch of asset rows by id. Snippet: the metadata unit's text for images, the best chunk's
-   text for text files, with `start_char`/`end_char`. When the best unit is the filename unit (D48):
-   kind `"filename"`, text the asset's filename, no offsets.
+   one final fetch of asset rows by id. Snippet (contract §6.8): the best unit's kind; for `"content"` the
+   chunk's text with `start_char`/`end_char`; for `"metadata"` and `"image"` the asset's description, no
+   offsets. When the best unit is the filename unit (D48): kind `"filename"`, text the asset's filename,
+   no offsets.
 6. `GET /api/search?collection=&q=&page=`.
 
 **Tests that pass here.** Unit 2 (RRF + grouping properties). Integration 5b (pending asset absent from
@@ -773,6 +774,55 @@ and paging. Redeploy.
 **Decisions to take.** `plainto` vs `websearch` tsquery (suggest `websearch`: quoted phrases and `-word`).
 Text search configuration (suggest `english`). RRF k (suggest 60). (The image unit's snippet is the
 description, fixed by the API contract.)
+
+**Parts.** Agreed Sep 27. Work on branch `phase-5`, cut from `phase-4` once Phase 4 is tagged. Each part
+gets its own plan, approved by Michael before its code; the next part starts only when Michael says so.
+A session that picks up a part reads `CLAUDE.md`, this section, `docs/api-contract.md` §6.8 and the
+design doc's "Search" section, writes the part's plan (the shape `CLAUDE.md` asks for) for approval, and
+only then writes code. The approved plan goes below the table as **Part N plan (approved <date>)**.
+
+| # | Part | Holds | Tests | Status |
+| --- | --- | --- | --- | --- |
+| 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | not started |
+| 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | not started |
+| 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | not started |
+| 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | not started |
+| 5 | Demo and redeploy | The phase's **Demo** above: seed a few text files and two images with the fake provider, curl ranks, snippets with offsets, normalised scores and paging; `make deploy`; tell the frontend track (Phase 7) that the real search API is live. An operational run, no new code | the Demo | not started |
+
+Facts already settled by the code, so no part re-decides them:
+
+- The search settings exist in `config.py`: `UNITS_PER_PATH=100`, `HNSW_EF_SEARCH=100`, `PAGE_SIZE=20`,
+  `MAX_ASSETS_PER_QUERY=100`, `QUERY_CACHE_SIZE=4096`. Phase 5 adds no setting.
+- Text search configuration is `english`: migration 0001 builds `tsv` with it, and a query must use the
+  same configuration to match its stems.
+- Local pgvector is 0.8.6, so `hnsw.iterative_scan` is available. With `relaxed_order` the index may hand
+  back rows slightly out of order, so the vector query orders by distance again after the scan.
+- Search units exist only for `ready` assets: `commit_ready` writes them in the transaction that sets
+  `ready`. Test 5b holds without an extra status filter.
+- Unit kinds: `metadata` (title, description, tags, visible text; D42's type tags are in it through
+  `assets.tags`), `filename` (D48), `image` (no body, vector only), `content` (one per chunk, with
+  `start_char`/`end_char`).
+
+Interfaces between parts: Part 1's hit shape is Part 2's input; Part 2's grouped, scored assets are Part
+3's input; Part 3's service function is the only thing Part 4 calls. Each part's plan names the exact
+types and signatures, and a later part's plan uses them as approved.
+
+Open points, settled in the part named (a suggestion is not a decision until Michael takes it):
+
+- Part 1: `websearch_to_tsquery` vs `plainto_tsquery`. Suggested: `websearch` (quoted phrases, `-word`,
+  never raises on odd input). A query of stop words only gives an empty tsquery: the keyword path returns
+  nothing and the vector path still answers.
+- Part 2: RRF k. Suggested: 60 (the original paper's value and the common default).
+- Part 3: how the query is normalised for the cache key. Suggested: trim and collapse whitespace, no
+  lowercasing, so the text embedded is exactly what was typed. Tests that swap the embedder clear the cache.
+- Part 3: the reranker's signature. Suggested: `rerank(query: str, documents: list[str]) -> list[int]`,
+  the new order as indices, the shape of Voyage's rerank call, so the Phase 9 version drops in.
+- Part 3: what the final fetch does with an id whose row is gone (collection deleted mid-query).
+  Suggested: skip it.
+- Part 4: integration 8 needs a unit found by one path only, which the bag-of-words `FakeEmbedder` cannot
+  give (a shared word is also a close vector). Suggested: the test writes assets and units straight into
+  the database with hand-picked vectors, and a stub embedder returns a chosen query vector. The D42 and
+  D48 tests go through `upload` and the worker, as a real asset would.
 
 ---
 
