@@ -308,7 +308,7 @@ type SearchResult = {
 };
 
 type Snippet = {
-  kind: "metadata" | "content" | "image";   // which part of the asset matched best
+  kind: "metadata" | "content" | "image" | "filename";   // which part of the asset matched best
   text: string;
   start_char: number | null;  // only for "content": where the text sits in the file
   end_char: number | null;
@@ -322,6 +322,8 @@ type Snippet = {
   `start_char`/`end_char` locate it in the file, so the detail view can highlight it. `"metadata"`: the
   AI description matched; `text` is the asset's description. `"image"`: the pixels matched; there is no
   text for that, so `text` is also the asset's description.
+  `"filename"`: the file's name matched (the full name or a word of it); `text` is the asset's `filename`
+  and there are no offsets.
 - An asset appears at most once in a whole query, even across pages.
 
 **Paging (D32).** `page` × 20 results, capped at 100 results per query (5 pages). `has_more` is `false` on
@@ -396,3 +398,4 @@ screen depends on it.
 | D32 | Search paging is `page` + `has_more`, page size 20, no total | 6.8 |
 | D33 | Error body is always `{"detail": string}`; one handler flattens 422 | section 4 |
 | D34 | Backend response models and frontend types are both hand-written from this file | top |
+| D48 | A file is found by its name; `snippet.kind` `"filename"` says so | 6.8 |
