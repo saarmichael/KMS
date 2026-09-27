@@ -67,8 +67,22 @@ def test_keyword_ranks_the_best_matching_unit_first(db):
     hits = keyword_search("demo", "harbour", limit=10)
 
     assert hits == [
-        UnitHit(unit_id=thrice, asset_id=asset_id, rank=1),
-        UnitHit(unit_id=once, asset_id=asset_id, rank=2),
+        UnitHit(
+            unit_id=thrice,
+            asset_id=asset_id,
+            rank=1,
+            all_words=True,
+            unit_kind="content",
+            asset_type="text",
+        ),
+        UnitHit(
+            unit_id=once,
+            asset_id=asset_id,
+            rank=2,
+            all_words=True,
+            unit_kind="content",
+            asset_type="text",
+        ),
     ]
 
 
@@ -99,6 +113,41 @@ def test_keyword_understands_quotes_and_minus(db):
 
     assert unit_ids(keyword_search("demo", '"black hair"', limit=10)) == [phrase]
     assert unit_ids(keyword_search("demo", "hair -tied", limit=10)) == [apart]
+
+
+def test_keyword_plain_query_finds_units_with_some_words(db):
+    asset_id = insert_asset(db, "demo")
+    bridge = insert_unit(db, asset_id, "demo", "london bridge")
+    insert_unit(db, asset_id, "demo", "paris metro")
+
+    hits = keyword_search("demo", "london meuseum", limit=10)
+
+    assert unit_ids(hits) == [bridge]
+    assert hits[0].all_words is False
+
+
+def test_keyword_all_words_rank_before_some_words(db):
+    asset_id = insert_asset(db, "demo")
+    # The partial unit repeats its word, so it would rank first on ts_rank alone.
+    partial = insert_unit(db, asset_id, "demo", "london london london london")
+    exact = insert_unit(db, asset_id, "demo", "a museum in london")
+
+    hits = keyword_search("demo", "london museum", limit=10)
+
+    assert unit_ids(hits) == [exact, partial]
+    assert [hit.all_words for hit in hits] == [True, False]
+
+
+def test_hits_carry_unit_kind_and_asset_type(db):
+    asset_id = insert_asset(db, "demo")
+    insert_unit(db, asset_id, "demo", "harbour", embedding=axis_vector(0))
+
+    keyword_hit = keyword_search("demo", "harbour", limit=10)[0]
+    vector_hit = vector_search("demo", axis_vector(0), MODEL, limit=10)[0]
+
+    for hit in (keyword_hit, vector_hit):
+        assert (hit.unit_kind, hit.asset_type) == ("content", "text")
+    assert vector_hit.all_words is False
 
 
 def test_keyword_odd_input_does_not_raise(db):
@@ -139,9 +188,30 @@ def test_vector_ranks_the_nearest_unit_first(db):
     hits = vector_search("demo", axis_vector(0), MODEL, limit=10)
 
     assert hits == [
-        UnitHit(unit_id=near, asset_id=asset_id, rank=1),
-        UnitHit(unit_id=between, asset_id=asset_id, rank=2),
-        UnitHit(unit_id=far, asset_id=asset_id, rank=3),
+        UnitHit(
+            unit_id=near,
+            asset_id=asset_id,
+            rank=1,
+            all_words=False,
+            unit_kind="content",
+            asset_type="text",
+        ),
+        UnitHit(
+            unit_id=between,
+            asset_id=asset_id,
+            rank=2,
+            all_words=False,
+            unit_kind="content",
+            asset_type="text",
+        ),
+        UnitHit(
+            unit_id=far,
+            asset_id=asset_id,
+            rank=3,
+            all_words=False,
+            unit_kind="content",
+            asset_type="text",
+        ),
     ]
 
 

@@ -1,8 +1,9 @@
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
 
-from kms.search import UnitHit
+from kms.search import MatchKind, UnitHit
 from kms.search.fuse import fuse_units, group_by_asset
 
 PHOTO = UUID(int=1)
@@ -10,12 +11,26 @@ NOTES = UUID(int=2)
 DIAGRAM = UUID(int=3)
 
 
-def ranked(*units: tuple[int, UUID]) -> list[UnitHit]:
+def ranked(*units: tuple[int, UUID], all_words: bool = False) -> list[UnitHit]:
     """Hits in the order given, ranked from 1, as a search path returns them."""
     hits = []
     for rank, (unit_id, asset_id) in enumerate(units, start=1):
-        hits.append(UnitHit(unit_id=unit_id, asset_id=asset_id, rank=rank))
+        hits.append(
+            UnitHit(
+                unit_id=unit_id,
+                asset_id=asset_id,
+                rank=rank,
+                all_words=all_words,
+                unit_kind="content",
+                asset_type="text",
+            )
+        )
     return hits
+
+
+def grouped(units):
+    """Assets from units that were not filtered, so the top unit sets the scale."""
+    return group_by_asset(units, units[0].score)
 
 
 def test_unit_score_is_the_sum_of_reciprocal_ranks():
@@ -54,14 +69,15 @@ def test_equal_scores_are_ordered_by_unit_id():
     units = fuse_units(keyword_hits, vector_hits)
 
     assert [unit.unit_id for unit in units] == [4, 9]
-    assert fuse_units(vector_hits, keyword_hits) == units
+    swapped = fuse_units(vector_hits, keyword_hits)
+    assert [unit.unit_id for unit in swapped] == [4, 9]
 
 
 def test_best_unit_wins_per_asset():
     keyword_hits = ranked((20, NOTES), (21, NOTES))
     vector_hits = ranked((21, NOTES), (22, PHOTO))
 
-    matches = group_by_asset(fuse_units(keyword_hits, vector_hits))
+    matches = grouped(fuse_units(keyword_hits, vector_hits))
 
     assert [(match.asset_id, match.unit_id) for match in matches] == [(NOTES, 21), (PHOTO, 22)]
 
@@ -69,7 +85,7 @@ def test_best_unit_wins_per_asset():
 def test_asset_with_one_strong_unit_beats_asset_with_many_weak_units():
     keyword_hits = ranked((1, PHOTO), (2, NOTES), (3, NOTES), (4, NOTES), (5, NOTES))
 
-    matches = group_by_asset(fuse_units(keyword_hits, []))
+    matches = grouped(fuse_units(keyword_hits, []))
 
     assert [match.asset_id for match in matches] == [PHOTO, NOTES]
 
@@ -78,7 +94,7 @@ def test_top_asset_scores_one_and_the_rest_less():
     keyword_hits = ranked((1, PHOTO), (2, NOTES), (3, DIAGRAM))
     vector_hits = ranked((1, PHOTO), (3, DIAGRAM))
 
-    matches = group_by_asset(fuse_units(keyword_hits, vector_hits))
+    matches = grouped(fuse_units(keyword_hits, vector_hits))
 
     assert matches[0].score == 1.0
     for match in matches[1:]:
@@ -88,4 +104,38 @@ def test_top_asset_scores_one_and_the_rest_less():
 
 def test_no_hits_give_no_assets():
     assert fuse_units([], []) == []
-    assert group_by_asset([]) == []
+    assert group_by_asset([], 1.0) == []
+
+
+def test_unit_match_follows_its_hits():
+    keyword_hits = ranked((1, PHOTO), (2, NOTES), all_words=True)
+    keyword_hits[1] = replace(keyword_hits[1], all_words=False)
+    vector_hits = ranked((1, PHOTO), (3, DIAGRAM))
+
+    matches = {unit.unit_id: unit.match for unit in fuse_units(keyword_hits, vector_hits)}
+
+    assert matches == {1: MatchKind.EXACT, 2: MatchKind.PARTIAL, 3: MatchKind.SEMANTIC}
+
+
+def test_asset_takes_its_strongest_match_and_its_snippet_unit():
+    # Unit 5 scores best by being on both paths but holds only some words; unit 6 holds all.
+    keyword_hits = ranked((6, NOTES), (5, NOTES), all_words=True)
+    keyword_hits[1] = replace(keyword_hits[1], all_words=False)
+    vector_hits = ranked((5, NOTES))
+
+    units = fuse_units(keyword_hits, vector_hits)
+    match = grouped(units)[0]
+
+    assert units[0].unit_id == 5
+    assert match.match == MatchKind.EXACT
+    assert match.unit_id == 6
+    assert match.score == 1.0
+
+
+def test_scores_are_measured_against_the_given_top_score():
+    units = fuse_units(ranked((1, PHOTO), (2, NOTES)), [])
+
+    matches = group_by_asset(units[1:], units[0].score)
+
+    assert matches[0].asset_id == NOTES
+    assert matches[0].score == pytest.approx(units[1].score / units[0].score)

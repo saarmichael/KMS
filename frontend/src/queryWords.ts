@@ -23,6 +23,15 @@ export function queryPattern(query: string): RegExp | null {
   return new RegExp(`\\b(${words.join('|')})`, 'gi')
 }
 
+// How many times the query's words appear in `text`; 0 when no word is long enough to look for.
+export function countMatches(text: string, query: string): number {
+  const pattern = queryPattern(query)
+  if (pattern === null) {
+    return 0
+  }
+  return text.match(pattern)?.length ?? 0
+}
+
 // About `length` characters of `text` around the first query word found in it, with "…" where the text
 // was cut. Null when no query word appears in the text.
 export function excerptAround(text: string, query: string, length: number): string | null {

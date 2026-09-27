@@ -62,7 +62,9 @@ export async function search(collection: string | null, query: string | null, pa
     } else {
       snippet = { kind: 'image' as const, text: stored.metadata.description, start_char: null, end_char: null }
     }
-    results.push({ asset: toAsset(stored), score: matchCount / topCount, snippet })
+    // The mock matches words only, so a result is exact when it holds every word; it ignores the filters.
+    const match = matchCount === words.length ? ('exact' as const) : ('partial' as const)
+    results.push({ asset: toAsset(stored), score: matchCount / topCount, snippet, match })
   }
 
   const hasMore = capped.length > page * PAGE_SIZE

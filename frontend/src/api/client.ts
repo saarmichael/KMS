@@ -1,11 +1,27 @@
 // Every request the app sends to the server goes through this file: one function per API endpoint.
 // Each builds the URL (and body), sends it, and returns the parsed JSON typed as in types.ts.
 // Every failure is thrown as ApiError, so a component only ever catches one type and shows its `detail`.
-import type { Asset, Collection, SearchResponse, UploadResponse } from './types'
+import type { Asset, Collection, SearchResponse, SearchView, UploadResponse } from './types'
 
 // `signal` lets the caller cancel the request: aborting it stops the fetch and rejects with an AbortError.
-export async function search(collection: string, query: string, page: number, signal?: AbortSignal): Promise<SearchResponse> {
-  const params = new URLSearchParams({ collection, q: query, page: String(page) })
+// Each filter value is its own parameter (match=exact&match=partial), the form the server reads as a list.
+export async function search(
+  collection: string,
+  query: string,
+  page: number,
+  view: SearchView,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  const params = new URLSearchParams({ collection, q: query, page: String(page), order: view.order })
+  for (const kind of view.match) {
+    params.append('match', kind)
+  }
+  for (const assetType of view.assetType) {
+    params.append('asset_type', assetType)
+  }
+  for (const part of view.foundIn) {
+    params.append('found_in', part)
+  }
   try {
     return await request<SearchResponse>(`/api/search?${params}`, { signal })
   } catch (caught) {

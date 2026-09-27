@@ -126,7 +126,7 @@ export default function App() {
             <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-600">
               <StackIcon className="size-5 text-white" />
             </div>
-            <span className="text-lg font-semibold text-gray-900">KMS</span>
+            <span className="text-lg font-semibold text-gray-900">Sift</span>
           </div>
 
           {collections !== null && (

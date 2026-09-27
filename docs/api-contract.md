@@ -287,13 +287,17 @@ Deletes database rows only; the files stay on disk (D13).
 | `collection` | string | yes | Name rule. Search never crosses collections |
 | `q` | string | yes | The query as typed. Empty or only spaces → `422` |
 | `page` | integer | no, default `1` | `1` or more. Pages hold 20 results (D32) |
+| `order` | string | no, default `exact_first` | `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
+| `match` | string, repeatable | no, default all | Keep only results whose `match` is one of these: `exact`, `partial`, `semantic`. Repeated for several: `match=exact&match=partial` |
+| `asset_type` | string, repeatable | no, default all | Keep only `image` or `text` assets |
+| `found_in` | string, repeatable | no, default all | Keep only matches in these parts of an asset: `content`, `metadata`, `image`, `filename` (the values of `snippet.kind`). The snippet then comes from a chosen part |
 
 **Responses:**
 
 | Status | Body | When |
 | --- | --- | --- |
 | `200` | `SearchResponse` | An unknown collection or no match gives `results: []` |
-| `422` | error | `collection` or `q` missing or invalid, `page` below 1 |
+| `422` | error | `collection` or `q` missing or invalid, `page` below 1, a value of `order`, `match`, `asset_type` or `found_in` outside the list |
 
 ```ts
 type SearchResponse = {
@@ -307,6 +311,7 @@ type SearchResult = {
   asset: Asset;              // always status "ready"
   score: number;             // 0 to 1; 1 is the best result of the whole query (not of the page)
   snippet: Snippet;          // why this asset matched
+  match: "exact" | "partial" | "semantic";   // how it matched (D50)
 };
 
 type Snippet = {
@@ -326,9 +331,16 @@ type Snippet = {
   text for that, so `text` is also the asset's description.
   `"filename"`: the file's name matched (the full name or a word of it); `text` is the asset's `filename`
   and there are no offsets.
+- `match` says how the asset matched. `"exact"`: one part of it (a passage, the description, the file
+  name) holds every query word. `"partial"`: the keyword search found some of the words. `"semantic"`:
+  only the meaning search found it. An asset takes its strongest match, and its snippet comes from the
+  part that shows it. A plain query finds keyword matches on any of its words; a query with quotes,
+  `-word` or `or` needs every word, as written.
+- Filters and order never change a result's `score`: it is measured against the best match of the
+  whole query before filtering.
 - An asset appears at most once in a whole query, even across pages.
 
-**Paging (D32).** `page` × 20 results, capped at 100 results per query (5 pages). `has_more` is `false` on
+**Paging (D32).** `page` × 20 results, capped at 100 results per query (5 pages), counted after the filters. `has_more` is `false` on
 the last page. There is no total count: it would cost an extra query and the UI only needs "is there
 more". A page past the end gives `200` with `results: []` and `has_more: false`, not an error.
 
@@ -401,3 +413,4 @@ screen depends on it.
 | D33 | Error body is always `{"detail": string}`; one handler flattens 422 | section 4 |
 | D34 | Backend response models and frontend types are both hand-written from this file | top |
 | D48 | A file is found by its name; `snippet.kind` `"filename"` says so | 6.8 |
+| D50 | Each result says how it matched (`match`); the user picks the order and filters by match, asset type and part | 6.8 |

@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 
 from kms.config import get_settings
 from kms.db import get_engine
-from kms.models import search_units
+from kms.models import assets, search_units
 from kms.search import UnitHit
 
 
@@ -29,7 +29,7 @@ def vector_search(
     # Ordered by distance alone, so the HNSW index can serve the scan. MATERIALIZED keeps the
     # planner from merging this ordering with the outer one.
     nearest = (
-        select(search_units.c.id, search_units.c.asset_id, distance)
+        select(search_units.c.id, search_units.c.asset_id, search_units.c.kind, distance)
         .where(search_units.c.collection == collection)
         .where(search_units.c.embedding_model == embedding_model)
         .order_by(distance)
@@ -39,7 +39,11 @@ def vector_search(
     )
     # relaxed_order may hand rows back slightly out of order, so they are sorted again here;
     # the unit id breaks ties, so the same query always gives the same order.
-    ranked = select(nearest.c.id, nearest.c.asset_id).order_by(nearest.c.distance, nearest.c.id)
+    ranked = (
+        select(nearest.c.id, nearest.c.asset_id, nearest.c.kind, assets.c.asset_type)
+        .join(assets, assets.c.id == nearest.c.asset_id)
+        .order_by(nearest.c.distance, nearest.c.id)
+    )
 
     with get_engine().begin() as connection:
         # The last argument, true, makes each setting end with this transaction, so a pooled
@@ -54,5 +58,14 @@ def vector_search(
 
     hits = []
     for rank, row in enumerate(rows, start=1):
-        hits.append(UnitHit(unit_id=row.id, asset_id=row.asset_id, rank=rank))
+        hits.append(
+            UnitHit(
+                unit_id=row.id,
+                asset_id=row.asset_id,
+                rank=rank,
+                all_words=False,
+                unit_kind=row.kind,
+                asset_type=row.asset_type,
+            )
+        )
     return hits

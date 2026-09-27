@@ -12,6 +12,8 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy.engine import RowMapping
 
+from kms.search import MatchKind
+
 # Lowercase letters, digits, "-" and "_", 1 to 64 characters: safe in a URL path as it is.
 COLLECTION_NAME_PATTERN = r"^[a-z0-9_-]{1,64}$"
 
@@ -119,6 +121,7 @@ class SearchResult(BaseModel):
     asset: Asset
     score: float
     snippet: Snippet
+    match: MatchKind
 
 
 class SearchResponse(BaseModel):

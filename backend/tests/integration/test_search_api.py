@@ -53,11 +53,11 @@ def stub_embedder():
     embed_query.cache_clear()
 
 
-def insert_asset(db, collection, filename="file.txt"):
+def insert_asset(db, collection, filename="file.txt", asset_type="text"):
     row = {
         "collection": collection,
         "filename": filename,
-        "asset_type": "text",
+        "asset_type": asset_type,
         "mime": "text/plain",
         "size_bytes": 1,
         "sha256": uuid.uuid4().hex,
@@ -71,7 +71,14 @@ def insert_asset(db, collection, filename="file.txt"):
 
 
 def insert_unit(
-    db, asset_id, collection, body=None, embedding=None, start_char=None, end_char=None
+    db,
+    asset_id,
+    collection,
+    body=None,
+    embedding=None,
+    start_char=None,
+    end_char=None,
+    kind="content",
 ):
     # A unit without a vector gets no model either, so the vector path never sees it.
     embedding_model = None
@@ -80,7 +87,7 @@ def insert_unit(
     row = {
         "asset_id": asset_id,
         "collection": collection,
-        "kind": "content",
+        "kind": kind,
         "start_char": start_char,
         "end_char": end_char,
         "body": body,
@@ -107,10 +114,9 @@ def post_file(client, filename: str, data: bytes, collection: str = "demo"):
     )
 
 
-def search(client, query, collection="demo", page=1):
-    response = client.get(
-        "/api/search", params={"collection": collection, "q": query, "page": page}
-    )
+def search(client, query, collection="demo", page=1, **options):
+    params = {"collection": collection, "q": query, "page": page, **options}
+    response = client.get("/api/search", params=params)
     assert response.status_code == 200
     return response.json()
 
@@ -133,6 +139,10 @@ def test_rejects_invalid_parameters(client):
         {"collection": "demo", "q": ""},
         {"collection": "demo", "q": "   "},
         {"collection": "demo", "q": "harbour", "page": 0},
+        {"collection": "demo", "q": "harbour", "order": "newest"},
+        {"collection": "demo", "q": "harbour", "match": "close"},
+        {"collection": "demo", "q": "harbour", "asset_type": "video"},
+        {"collection": "demo", "q": "harbour", "found_in": "title"},
     ]
     for params in invalid_params:
         response = client.get("/api/search", params=params)
@@ -304,3 +314,75 @@ def test_filename_word_finds_the_asset(client):
         "start_char": None,
         "end_char": None,
     }
+
+
+# --- match kinds, order and filters ------------------------------------------
+
+
+def insert_three_kinds(db):
+    """Three assets that match "london museum" exactly, partly, and by meaning only. The
+    semantic one is nearest the query vector and so scores best on its own."""
+    exact = insert_asset(db, "demo", "exact.txt")
+    insert_unit(db, exact, "demo", body="a museum in london")
+    partial = insert_asset(db, "demo", "partial.txt")
+    insert_unit(db, partial, "demo", body="london bridge")
+    semantic = insert_asset(db, "demo", "semantic.jpg", asset_type="image")
+    insert_unit(db, semantic, "demo", body="soup cans", embedding=axis_vector(0), kind="image")
+    return str(exact), str(partial), str(semantic)
+
+
+def test_result_carries_its_match_kind(client, db, stub_embedder):
+    exact, partial, semantic = insert_three_kinds(db)
+
+    body = search(client, "london museum")
+
+    matches = {result["asset"]["id"]: result["match"] for result in body["results"]}
+    assert matches == {exact: "exact", partial: "partial", semantic: "semantic"}
+
+
+def test_each_order(client, db, stub_embedder):
+    exact, partial, semantic = insert_three_kinds(db)
+
+    exact_first = result_ids(search(client, "london museum"))
+    tiered = result_ids(search(client, "london museum", order="tiered"))
+    blended = result_ids(search(client, "london museum", order="blended"))
+
+    assert exact_first[0] == exact
+    assert tiered == [exact, partial, semantic]
+    # Each asset is on one path at rank 1 or 2, so fusion alone puts partial last.
+    assert blended == [exact, semantic, partial]
+
+
+def test_match_filter_keeps_chosen_kinds_with_unchanged_scores(client, db, stub_embedder):
+    exact, partial, semantic = insert_three_kinds(db)
+    scores = {
+        result["asset"]["id"]: result["score"]
+        for result in search(client, "london museum")["results"]
+    }
+
+    body = search(client, "london museum", match=["partial", "semantic"])
+
+    assert set(result_ids(body)) == {partial, semantic}
+    for result in body["results"]:
+        assert result["score"] == scores[result["asset"]["id"]]
+
+
+def test_asset_type_and_found_in_filters(client, db, stub_embedder):
+    exact, partial, semantic = insert_three_kinds(db)
+
+    assert result_ids(search(client, "london museum", asset_type="image")) == [semantic]
+    assert set(result_ids(search(client, "london museum", asset_type="text"))) == {exact, partial}
+    assert result_ids(search(client, "london museum", found_in="image")) == [semantic]
+    assert search(client, "london museum", found_in="filename")["results"] == []
+
+
+def test_found_in_takes_the_snippet_from_the_chosen_part(client, db, stub_embedder):
+    asset_id = insert_asset(db, "demo", "lisbon.txt")
+    insert_unit(db, asset_id, "demo", body="lisbon", kind="metadata")
+    insert_unit(db, asset_id, "demo", body="a day in lisbon", start_char=0, end_char=15)
+
+    unfiltered = search(client, "lisbon")["results"][0]["snippet"]["kind"]
+    content_only = search(client, "lisbon", found_in="content")["results"][0]["snippet"]["kind"]
+
+    assert unfiltered == "metadata"
+    assert content_only == "content"

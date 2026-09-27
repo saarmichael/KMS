@@ -14,9 +14,10 @@ from kms.ai import get_embedder, get_reranker
 from kms.config import get_settings
 from kms.db import get_engine
 from kms.models import assets, search_units
-from kms.search import UnitHit
+from kms.search import MatchKind, UnitHit
 from kms.search.fuse import AssetMatch, fuse_units, group_by_asset
 from kms.search.keyword import keyword_search
+from kms.search.order import SearchOrder, filter_matches, filter_units, order_matches
 from kms.search.vector import vector_search
 
 logger = logging.getLogger(__name__)
@@ -48,11 +49,13 @@ class FoundAsset:
         asset: The asset's row, with its best unit's columns alongside.
         score: 1.0 for the best asset of the whole query, less for the rest.
         snippet: Why it matched.
+        match: How it matched: exact, partial or semantic.
     """
 
     asset: RowMapping
     score: float
     snippet: MatchSnippet
+    match: MatchKind
 
 
 @dataclass(frozen=True)
@@ -191,17 +194,31 @@ def fetch_found_assets(page_matches: list[AssetMatch]) -> list[FoundAsset]:
         # Deleted since the search.
         if row is None:
             continue
-        found.append(FoundAsset(asset=row, score=match.score, snippet=build_snippet(row)))
+        found.append(
+            FoundAsset(asset=row, score=match.score, snippet=build_snippet(row), match=match.match)
+        )
     return found
 
 
-def search(collection: str, query: str, page: int) -> ResultPage:
-    """Search one collection and return one page of assets, best first.
+def search(
+    collection: str,
+    query: str,
+    page: int,
+    order: SearchOrder,
+    match_kinds: list[MatchKind] | None,
+    asset_types: list[str] | None,
+    unit_kinds: list[str] | None,
+) -> ResultPage:
+    """Search one collection and return one page of assets, in the chosen order.
 
     Args:
         collection: The collection to search in; the caller has checked its name.
         query: The query as typed; the caller has checked it is not blank.
         page: The page to return, from 1.
+        order: How to order the assets.
+        match_kinds: Keep only assets whose strongest match is one of these; None keeps all.
+        asset_types: Keep only assets of these types; None keeps all.
+        unit_kinds: Keep only matches in these parts of an asset; None keeps all.
 
     Returns:
         The page's assets with their scores and snippets. Empty, with `has_more` false, when
@@ -220,8 +237,17 @@ def search(collection: str, query: str, page: int) -> ResultPage:
     # Search both paths.
     keyword_hits, vector_hits = run_both_paths(collection, query, model, settings.units_per_path)
 
-    # Fuse into assets, capped.
-    matches = group_by_asset(fuse_units(keyword_hits, vector_hits))
+    # Fuse. Scores are measured against the best unit before filtering, so a filter never
+    # changes the scores of what it keeps.
+    units = fuse_units(keyword_hits, vector_hits)
+    top_score = units[0].score if units else 1.0
+
+    # Filter, group into assets, order, cap. The cap comes last, so a filter can reach an
+    # asset that is far down the unfiltered list.
+    units = filter_units(units, asset_types, unit_kinds)
+    matches = group_by_asset(units, top_score)
+    matches = filter_matches(matches, match_kinds)
+    matches = order_matches(matches, order)
     matches = matches[: settings.max_assets_per_query]
 
     # Slice the page.

@@ -1,12 +1,14 @@
-// A large dialog with everything about one file: the file itself (the image, or the text with the
-// matched passage marked), what the model wrote about it, and links to open or download it.
+// A large dialog with everything about one file: the file itself (the image, or the text), what the model
+// wrote about it, and links to open or download it. Opened from a search, the query words are marked
+// throughout, and a text file opens scrolled to where the result came from.
 //
 // How data reaches it:
 //   CollectionView `detail` state -> <AssetDetailDialog asset snippet>
 //     image -> <img src={assetFileUrl(id)}>
-//     text  -> getAssetText(id) -> `text` state -> shown in full; snippet start_char..end_char marked
+//     text  -> getAssetText(id) -> `text` state -> shown in full, scrolled to the snippet's start_char
 //     asset.metadata -> description, tags, visible text, type, model
-//     query (when opened from a search) -> its words marked in the visible text, the first one scrolled to
+//     query (when opened from a search) -> its words marked in the title, filename, description, tags,
+//       visible text and file text; the first one in the matched passage (or the file) scrolled to
 //     <FileActions asset> -> Open in new tab / Download
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
@@ -28,7 +30,8 @@ type AssetDetailDialogProps = {
 export default function AssetDetailDialog({ asset, snippet, query, onClose }: AssetDetailDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const textBox = useRef<HTMLPreElement>(null)
-  const markedPassage = useRef<HTMLElement>(null)
+  const passageStart = useRef<HTMLSpanElement>(null)
+  const firstTextMark = useRef<HTMLElement>(null)
   const visibleTextBox = useRef<HTMLDivElement>(null)
   const firstVisibleTextMark = useRef<HTMLElement>(null)
   const [text, setText] = useState<string | null>(null)
@@ -53,11 +56,13 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
     dialog.current?.showModal()
   }, [])
 
-  // Once the text is on screen, only the text box scrolls so the marked passage sits in its middle;
-  // the dialog itself stays put, title in view. offsetTop is measured from the box (it is `relative`).
+  // Once the text is on screen, only the text box scrolls so the first marked word sits in its middle;
+  // the dialog itself stays put, title in view. A passage matched by meaning may hold no query word, so
+  // then its start is the target. offsetTop is measured from the box (it is `relative`).
   useEffect(() => {
-    if (textBox.current && markedPassage.current) {
-      textBox.current.scrollTop = markedPassage.current.offsetTop - textBox.current.clientHeight / 2
+    const target = firstTextMark.current ?? passageStart.current
+    if (textBox.current && target) {
+      textBox.current.scrollTop = target.offsetTop - textBox.current.clientHeight / 2
     }
   }, [text])
 
@@ -78,6 +83,8 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
 
   const metadata = asset.metadata
   const title = metadata ? metadata.title : asset.filename
+  // Opened from the file list there is no query, and HighlightedText then marks nothing.
+  const queryText = query ?? ''
 
   function renderText() {
     if (textError) {
@@ -92,7 +99,8 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
       )
     }
 
-    let content: ReactNode = text
+    // Without a matched passage, the first query word anywhere in the file is the one scrolled to.
+    let content: ReactNode = <HighlightedText text={text} query={queryText} firstMarkRef={firstTextMark} />
     if (snippet && snippet.kind === 'content' && snippet.start_char !== null && snippet.end_char !== null) {
       // The server counts offsets in characters; Array.from splits the text the same way (an emoji is
       // one character here, but two units in a plain JavaScript string).
@@ -102,11 +110,10 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
       const after = characters.slice(snippet.end_char).join('')
       content = (
         <>
-          {before}
-          <mark ref={markedPassage} className="rounded-sm bg-indigo-100 text-indigo-900">
-            {passage}
-          </mark>
-          {after}
+          <HighlightedText text={before} query={queryText} />
+          <span ref={passageStart} />
+          <HighlightedText text={passage} query={queryText} firstMarkRef={firstTextMark} />
+          <HighlightedText text={after} query={queryText} />
         </>
       )
     }
@@ -131,11 +138,17 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="truncate text-lg font-semibold text-gray-900">{title}</h2>
+              <h2 className="truncate text-lg font-semibold text-gray-900">
+                <HighlightedText text={title} query={queryText} />
+              </h2>
               <StatusBadge status={asset.status} />
             </div>
             {/* Without metadata the title already is the filename. */}
-            {metadata && <p className="truncate text-sm text-gray-500">{asset.filename}</p>}
+            {metadata && (
+              <p className="truncate text-sm text-gray-500">
+                <HighlightedText text={asset.filename} query={queryText} />
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -171,14 +184,14 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
           {metadata && (
             <>
               <Field label="Description" wide>
-                {metadata.description}
+                <HighlightedText text={metadata.description} query={queryText} />
               </Field>
               {metadata.tags.length > 0 && (
                 <Field label="Tags" wide>
                   <div className="flex flex-wrap gap-1.5">
                     {metadata.tags.map((tag) => (
                       <span key={tag} className="rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                        {tag}
+                        <HighlightedText text={tag} query={queryText} />
                       </span>
                     ))}
                   </div>
@@ -190,11 +203,11 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
                     ref={visibleTextBox}
                     className="relative max-h-60 overflow-auto rounded-lg bg-gray-50 px-3 py-2 font-mono text-xs whitespace-pre-wrap ring-1 ring-gray-200"
                   >
-                    {query ? (
-                      <HighlightedText text={metadata.visible_text} query={query} firstMarkRef={firstVisibleTextMark} />
-                    ) : (
-                      metadata.visible_text
-                    )}
+                    <HighlightedText
+                      text={metadata.visible_text}
+                      query={queryText}
+                      firstMarkRef={firstVisibleTextMark}
+                    />
                   </div>
                 </Field>
               )}
@@ -203,7 +216,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
             </>
           )}
           <Field label="File">
-            {asset.filename}
+            <HighlightedText text={asset.filename} query={queryText} />
             {asset.aliases.length > 0 && (
               <span className="block text-gray-500">also uploaded as {asset.aliases.join(', ')}</span>
             )}

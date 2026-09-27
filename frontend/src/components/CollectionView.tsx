@@ -5,13 +5,15 @@
 //   <SearchBar onSearch> -> handleSearch(query) -> `activeSearch` state, `searching` = true
 //     -> <SearchResults key={id} collection query>   (makes the search request itself)
 //     -> page 1 arrives or fails -> onFirstPageDone -> `searching` = false (the box unlocks)
+//   `view` state (order and filters) -> <SearchResults view>; kept across searches in this collection
 //   <SearchBar onCancel> -> handleCancel() -> no active search: the files show again at once, and
 //     SearchResults is removed, aborting its request in the background
 //   <CollectionFiles collection onCollectionChanged>   (files, uploads, retries) stays mounted the whole
 //     time and is only hidden during a search, so leaving a search needs no reload
 //   a tile or a result card -> handleOpen(asset, snippet, query) -> `detail` state -> <AssetDetailDialog>
 import { useCallback, useState } from 'react'
-import type { Asset, Snippet } from '../api/types'
+import type { Asset, SearchView, Snippet } from '../api/types'
+import { DEFAULT_VIEW } from '../searchView'
 import AssetDetailDialog from './AssetDetailDialog'
 import CollectionFiles from './CollectionFiles'
 import SearchBar from './SearchBar'
@@ -39,6 +41,8 @@ export default function CollectionView({ collection, onCollectionChanged }: Coll
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null)
   const [searching, setSearching] = useState(false)
   const [detail, setDetail] = useState<OpenDetail | null>(null)
+  // Lives here, not in the results, so a new search keeps the order and filters the user set.
+  const [view, setView] = useState<SearchView>(DEFAULT_VIEW)
 
   // Every search gets a new id. Used as the results' key, it gives each search a fresh component:
   // page 1, nothing left over, and a late answer from an earlier search is dropped with the old one.
@@ -73,6 +77,8 @@ export default function CollectionView({ collection, onCollectionChanged }: Coll
           key={activeSearch.id}
           collection={collection}
           query={activeSearch.query}
+          view={view}
+          onViewChange={setView}
           onBack={() => setActiveSearch(null)}
           onFirstPageDone={handleFirstPageDone}
           onOpen={handleOpen}

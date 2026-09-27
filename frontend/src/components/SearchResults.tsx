@@ -2,22 +2,28 @@
 // pages loaded so far, and shows them as cards.
 //
 // How data flows:
-//   loadPage(1) -> search(collection, query, 1) -> GET /api/search?collection=&q=&page=1
+//   loadPage(1) -> search(collection, query, 1, view) -> GET /api/search?collection=&q=&page=1&order=&match=…
 //     -> { results, page, has_more } -> `results` state (each page appended) and `hasMore`
 //     -> <SearchResultCard result query> for each result
 //   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
+//   <SearchOptions onChange> -> handleViewChange -> onViewChange, up to CollectionView's `view` state
+//     -> a new `view` prop -> a new loadPage -> the effect loads page 1 again; the cards shown stay
+//     until the new ones arrive
 //   Cancel (in the search box) removes this component; the effect cleanup aborts the running request
 //   <SearchResultCard onOpen> -> onOpen(asset, snippet, query), passed up to CollectionView's detail dialog
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, search } from '../api/client'
-import type { Asset, SearchResult, Snippet } from '../api/types'
+import type { Asset, SearchResult, SearchView, Snippet } from '../api/types'
 import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
+import SearchOptions from './SearchOptions'
 import SearchResultCard from './SearchResultCard'
 import StatusMessage from './StatusMessage'
 
 type SearchResultsProps = {
   collection: string
   query: string
+  view: SearchView
+  onViewChange: (view: SearchView) => void
   onBack: () => void
   onFirstPageDone: () => void
   onOpen: (asset: Asset, snippet: Snippet, query: string) => void
@@ -25,11 +31,21 @@ type SearchResultsProps = {
 
 const PLACEHOLDER_CARDS = 3
 
-export default function SearchResults({ collection, query, onBack, onFirstPageDone, onOpen }: SearchResultsProps) {
+export default function SearchResults({
+  collection,
+  query,
+  view,
+  onViewChange,
+  onBack,
+  onFirstPageDone,
+  onOpen,
+}: SearchResultsProps) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
+  // True from a change of view until its first page is back; the cards shown until then are the old ones.
+  const [reloading, setReloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // ---- Talks to the API -------------------------------------------------------------------
@@ -39,7 +55,7 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
   // A cancelled request changes nothing: the component is on its way out.
   const loadPage = useCallback(
     (pageNumber: number, signal?: AbortSignal): Promise<void> => {
-      return search(collection, query, pageNumber, signal)
+      return search(collection, query, pageNumber, view, signal)
         .then((response) => {
           // Page 1 replaces the list, so loading it twice never shows a result twice.
           if (pageNumber === 1) {
@@ -60,15 +76,16 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
         })
         .then(() => {
           if (pageNumber === 1 && !signal?.aborted) {
+            setReloading(false)
             onFirstPageDone()
           }
         })
     },
-    [collection, query, onFirstPageDone],
+    [collection, query, view, onFirstPageDone],
   )
 
-  // Loads the first page once, when the search starts. Leaving (Cancel, Back, a new search) runs the
-  // cleanup, which aborts the request if it is still running.
+  // Loads the first page when the search starts, and again when the view changes. Leaving (Cancel, Back,
+  // a new search) or a newer view runs the cleanup, which aborts the request if it is still running.
   useEffect(() => {
     const controller = new AbortController()
     loadPage(1, controller.signal)
@@ -79,6 +96,13 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
     setLoading(true)
     setError(null)
     loadPage(page + 1)
+  }
+
+  function handleViewChange(nextView: SearchView) {
+    setLoading(true)
+    setReloading(true)
+    setError(null)
+    onViewChange(nextView)
   }
 
   function handleTryAgain() {
@@ -141,14 +165,19 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
     }
   }
 
+  const options = <SearchOptions view={view} onChange={handleViewChange} />
+
   if (results.length === 0) {
     return (
-      <StatusMessage
-        icon={<SearchIcon className="size-12" />}
-        title={`No matches for "${query}"`}
-        text="Try other words; searches match by meaning as well as by the exact words."
-        action={backLink}
-      />
+      <div className="space-y-3">
+        {options}
+        <StatusMessage
+          icon={reloading ? <SpinnerIcon className="size-8 text-indigo-600" /> : <SearchIcon className="size-12" />}
+          title={`No matches for "${query}"`}
+          text="Try other words, or turn on more filters; searches match by meaning as well as by the exact words."
+          action={backLink}
+        />
+      </div>
     )
   }
 
@@ -157,9 +186,13 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
 
   return (
     <div className="space-y-3">
+      {options}
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-gray-500">
-          {count} {resultsWord} for <span className="font-medium text-gray-900">"{query}"</span>
+        <p className="flex items-center gap-2 text-sm text-gray-500">
+          <span>
+            {count} {resultsWord} for <span className="font-medium text-gray-900">"{query}"</span>
+          </span>
+          {reloading && <SpinnerIcon className="size-4 text-indigo-600" />}
         </p>
         {backLink}
       </div>

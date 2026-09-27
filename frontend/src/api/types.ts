@@ -40,18 +40,33 @@ export type UploadResponse = {
   asset: Asset
 }
 
-// Why a search result matched: a passage of a text file (with its position) or the asset's description.
+// Why a search result matched: a passage of a text file (with its position), the asset's description,
+// or its file name.
 export type Snippet = {
-  kind: 'metadata' | 'content' | 'image'
+  kind: 'metadata' | 'content' | 'image' | 'filename'
   text: string
   start_char: number | null
   end_char: number | null
 }
 
+// How a result matched: every query word in one part of it, some of the words, or by meaning only.
+export type MatchKind = 'exact' | 'partial' | 'semantic'
+
 export type SearchResult = {
   asset: Asset
   score: number
   snippet: Snippet
+  match: MatchKind
+}
+
+export type SearchOrder = 'exact_first' | 'tiered' | 'blended'
+
+// What the user chose to see: the order and three filters, each a list of the values to keep.
+export type SearchView = {
+  order: SearchOrder
+  match: MatchKind[]
+  assetType: Asset['asset_type'][]
+  foundIn: Snippet['kind'][]
 }
 
 export type SearchResponse = {
