@@ -54,16 +54,17 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
     loadAssets()
   }, [loadAssets])
 
-  // While any file is still being processed, loads the list again 2 s after each load.
-  // A new list re-runs this effect; the cleanup cancels a timer that is no longer needed.
+  // While any file is still being processed, loads the list again every 2 s. The timer repeats on its
+  // own, so a failed load does not stop it: the list recovers as soon as the server answers again.
+  // The effect re-runs only when `stillWorking` flips; the cleanup stops the timer once nothing is left.
+  const stillWorking = assets?.some((asset) => asset.status === 'pending' || asset.status === 'processing') ?? false
   useEffect(() => {
-    const stillWorking = assets?.some((asset) => asset.status === 'pending' || asset.status === 'processing')
     if (!stillWorking) {
       return
     }
-    const timer = setTimeout(loadAssets, POLL_INTERVAL_MS)
-    return () => clearTimeout(timer)
-  }, [assets, loadAssets])
+    const timer = setInterval(loadAssets, POLL_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [stillWorking, loadAssets])
 
   // Every file is its own request. allSettled waits for all of them, so one refused file does not
   // stop the others.
@@ -141,7 +142,9 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
       )
     }
 
-    const workingCount = assets.filter((asset) => asset.status === 'pending' || asset.status === 'processing').length
+    // The same words as the status badges, so the summary and the tiles agree.
+    const pendingCount = assets.filter((asset) => asset.status === 'pending').length
+    const processingCount = assets.filter((asset) => asset.status === 'processing').length
     return (
       <>
         {loadError && (
@@ -154,7 +157,8 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
         )}
         <p className="text-sm text-gray-500">
           {assets.length === 1 ? '1 file' : `${assets.length} files`}
-          {workingCount > 0 && ` · ${workingCount} processing`}
+          {pendingCount > 0 && ` · ${pendingCount} pending`}
+          {processingCount > 0 && ` · ${processingCount} processing`}
         </p>
         <ul className="space-y-3">
           {assets.map((asset) => (

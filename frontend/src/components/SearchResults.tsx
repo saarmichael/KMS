@@ -125,13 +125,16 @@ export default function SearchResults({ collection, query, onBack, onFirstPageDo
           title="Search failed"
           text={error}
           action={
-            <button
-              type="button"
-              onClick={handleTryAgain}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
-            >
-              Try again
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={handleTryAgain}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+              >
+                Try again
+              </button>
+              {backLink}
+            </div>
           }
         />
       )

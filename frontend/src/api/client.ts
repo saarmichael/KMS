@@ -4,9 +4,17 @@
 import type { Asset, Collection, SearchResponse, UploadResponse } from './types'
 
 // `signal` lets the caller cancel the request: aborting it stops the fetch and rejects with an AbortError.
-export function search(collection: string, query: string, page: number, signal?: AbortSignal): Promise<SearchResponse> {
+export async function search(collection: string, query: string, page: number, signal?: AbortSignal): Promise<SearchResponse> {
   const params = new URLSearchParams({ collection, q: query, page: String(page) })
-  return request<SearchResponse>(`/api/search?${params}`, { signal })
+  try {
+    return await request<SearchResponse>(`/api/search?${params}`, { signal })
+  } catch (caught) {
+    // The search endpoint never answers 404 itself, so a 404 means this server has no search yet.
+    if (caught instanceof ApiError && caught.status === 404) {
+      throw new ApiError(404, 'Search is not available on this server yet.')
+    }
+    throw caught
+  }
 }
 
 export function uploadAsset(collection: string, file: File): Promise<UploadResponse> {

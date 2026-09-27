@@ -562,6 +562,9 @@ top of each file.
 | F8 | How closeness is shown | No dimming: every result, thumbnail and snippet stays fully visible. A coloured bar on each result card's left edge, strong indigo for close matches down to light grey for far ones | decided (Sep 27) |
 | F9 | Asset detail view | A large centred modal (`<dialog>`) over the page; closing returns to the list or results as they were | decided (Sep 27) |
 | F10 | Open in a new tab and Download | Plain links to the file endpoint (`target="_blank"`, `download`). They do not work under the mocks (MSW never handles page navigations; the proxy answers 502) and work against the real API | decided (Sep 27) |
+| F11 | Polling the file list | One repeating 2 s timer (`setInterval`) while any file is pending or processing, so a failed load does not stop it and the list recovers when the server answers again. Two slow loads may overlap; the next tick corrects any older answer | decided (Sep 27) |
+| F12 | File count summary above the list | Uses the badge words: "3 files · 1 pending · 1 processing", a part left out when its count is 0 | decided (Sep 27) |
+| F13 | Search before the backend has it | A 404 from the search endpoint is shown as "Search is not available on this server yet."; the error screen offers Try again and Back to all files | decided (Sep 27) |
 
 ---
 

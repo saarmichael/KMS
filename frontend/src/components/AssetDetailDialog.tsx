@@ -134,7 +134,8 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
               <h2 className="truncate text-lg font-semibold text-gray-900">{title}</h2>
               <StatusBadge status={asset.status} />
             </div>
-            <p className="truncate text-sm text-gray-500">{asset.filename}</p>
+            {/* Without metadata the title already is the filename. */}
+            {metadata && <p className="truncate text-sm text-gray-500">{asset.filename}</p>}
           </div>
           <button
             type="button"
@@ -149,10 +150,11 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
         <FileActions asset={asset} />
 
         {asset.asset_type === 'image' ? (
+          // Shown at its own size at most, so a small image is not stretched and blurred.
           <img
             src={assetFileUrl(asset.id)}
             alt={title}
-            className="max-h-[60vh] w-full rounded-lg bg-gray-100 object-contain"
+            className="mx-auto max-h-[60vh] max-w-full rounded-lg bg-gray-100"
           />
         ) : (
           renderText()
