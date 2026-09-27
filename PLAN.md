@@ -437,7 +437,7 @@ fixture. `kms embed` prints 1024-dim vectors and the batch timing. Redeploy so m
 boot; the live URL stays on fake adapters until Phase 6.
 
 **Decisions to take.** Output token limit for `visible_text`. Whether the repair retry re-sends the image
-(cost) or only the text. Where `AI_CACHE_DIR` defaults to (recordings are committed, D26).
+(cost) or only the text. Where `AI_CACHE_DIR` defaults to (recordings stay local, D26 as amended).
 
 **Parts.** Agreed Sep 27. Work on branch `phase-4`. Each part gets its own plan, approved before its code;
 the next part starts only when Michael says so. Vendor-free parts first, real vendor calls last.
@@ -452,7 +452,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | done |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence; every fallback model checked; the recorder replays real answers | done |
 | 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; the recordings stay local, git-ignored (D26 as amended). An operational run, not new code | done |
-| 9 | A password on the app | `api/auth.py` middleware, `APP_PASSWORD` setting, contract rule (D49); added Sep 27 before live runs real providers | implemented, awaiting Michael's review |
+| 9 | A password on the app | `api/auth.py` middleware, `APP_PASSWORD` setting, contract rule (D49); added Sep 27 before live runs real providers | done |
 
 Open points, settled in the part named:
 
@@ -1074,3 +1074,32 @@ D26 recording. The former Phases 4–8 are now 5–9. No code changed except the
   claim (staged in SQL, since a fake job takes about 10 ms) released by the reaper and finished as attempt 2; the
   invalid mode failing three times, then Retry. UI checklist run by Michael locally. Gate cleared by Michael; merged
   to `main` and tagged `phase-3` on Sep 27, 2026.
+
+### Phase 4 — Sep 27, 2026
+
+- **Built.** Migration 0002 and `assets.vision_model`; `ai/errors.py` (error kinds, backoff honouring
+  `retryDelay`); `ai/prompts.py` and `ai/gemini.py` (`GeminiVision`: schema, minimal thinking, one repair, the
+  `VISION_MODELS` walk); `ai/voyage.py` (`VoyageEmbedder`, batched); `ai/recorded.py` (record and replay);
+  `kms describe` and `kms embed` with `prepare_file` shared with the worker; `tests/live/` in two passes (vendors,
+  then the recorder); `api/auth.py`, one password in front of the app (D49). Worked on branch `phase-4`.
+- **Deviations.** Recordings stay local and git-ignored instead of committed (D26 amended). The long book
+  (`innocents_abroad.txt`) was left out of the recording run; its size and recording are decided in Phase 6. A
+  password on the app (Part 9, D49) was brought forward from Phase 8, so the live URL could run real providers. The
+  live URL runs `AI_PROVIDER=real` from this phase on, instead of from Phase 6. Found and fixed in the phase: text
+  files stored `visible_text` as `""` where the contract says `null` (now written as null by `commit_ready`);
+  `make test` read `AI_PROVIDER=real` from `backend/.env` and called the vendors (the test conftest now pins the
+  fake provider and an empty password).
+- **Recording run (Part 8).** From an empty database, the 31 files of `../seed/demo` uploaded through the UI: 31
+  `ready`, one Gemini call each (`gemini-3-flash-preview`, no repair, fallback or retry), 31 Voyage calls. Deleted and
+  uploaded again: 62 recording hits, no vendor call, identical metadata.
+- **Deployment.** Railway sealed variables did not reach the running service: `APP_PASSWORD`, `GEMINI_API_KEY` and
+  `VOYAGE_API_KEY` arrived empty while sealed and worked once re-added unsealed. They stay unsealed; the Railway-only
+  vendor keys, the spend caps and the password carry the protection. `AI_CACHE_DIR` is not set on Railway (an empty
+  value is not kept), so the live service records into the container's `./recordings`, wiped at each deploy.
+- **Noted for Phase 6.** The `seed_dir` default `../seed` resolves from `backend/` to `KMS/seed`, not the folder
+  beside the repo. A prompt change bumps `PROMPT_VERSION` and re-records.
+- **Decisions taken.** D26 amended, D49. The section's open questions were settled in the part plans.
+- **Gate.** `make test` green (163 tests). Recording run and replay run by Claude against the local dev server and
+  checked in the UI. Deployed: migration 0002 applied at boot, the password answering `401` without it, and real
+  providers tested on the live URL by Michael. Gate cleared by Michael; merged to `main` and tagged `phase-4` on
+  Sep 27, 2026.
