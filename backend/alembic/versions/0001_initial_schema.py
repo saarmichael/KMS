@@ -6,10 +6,9 @@ Create Date: 2026-09-24
 """
 
 import sqlalchemy as sa
+from alembic import op
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql as pg
-
-from alembic import op
 
 revision = "0001"
 down_revision = None

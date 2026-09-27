@@ -41,6 +41,10 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 
+[tool.ruff.lint.isort]
+# The migrations folder is also named "alembic"; without this, ruff takes the package for our own code.
+known-third-party = ["alembic"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["live: needs real vendor API keys"]

@@ -33,7 +33,8 @@ test-live: db  ## adds the live vendor tests; needs GEMINI_API_KEY and VOYAGE_AP
 	$(BACKEND) pytest -q -m live tests/live
 
 lint:
-	$(BACKEND) ruff check . && $(BACKEND) ruff format --check .
+	$(BACKEND) ruff check .
+	$(BACKEND) ruff format --check .
 	$(FRONTEND) run lint
 
 build:         ## SPA build into the backend, then the container image

@@ -57,8 +57,14 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D38 | `NOTIFY` on retry | Retry sends `NOTIFY asset_pending` in its transaction, like upload | decided (Sep 26) |
 | D39 | Collection name validation | At the API only (query, form and path patterns); `upload()` trusts its caller | decided (Sep 26) |
 | D40 | Dedup mechanism | `INSERT … ON CONFLICT (collection, sha256) DO NOTHING RETURNING *`; no row back = duplicate. Replaces lookup + catch `IntegrityError`; design doc amended | decided (Sep 26) |
-| D41 | Chunker out of Phase 2 | Built at the end of Phase 3, its last step; its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
+| D41 | Chunker out of Phase 2 | Built in Phase 3 (placed with the worker by D44); its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
 | D42 | An asset is found by its kind | A query naming a kind of asset ("picture", "document") finds assets of that kind even when no content mentions it. Our code, not the model, adds fixed type tags to `assets.tags`, taken from `asset_type` and `image_type`: every image: `image`, `picture`; by `image_type`: photo → `photo`, `photograph`; screenshot → `screenshot`; document → `document`, `scan`; diagram → `diagram`, `drawing`; every text file: `text`, `text file`, `document`. Merged with the model's tags and deduped; visible in the API like any tag. Tested in Phase 5 (integration) and Phase 6 (two matrix rows). Michael's addition | decided (Sep 27) |
+| D43 | Where the seed collection lives | Outside the repo, at `../seed` (the `SEED_DIR` default), never committed: the photos are personal. How `kms seed` and the matrix read it is settled in Phase 6. The `FakeVision` fixtures that describe its files (filenames plus short hand-written metadata) are committed | decided (Sep 27) |
+| D44 | Chunker built with the worker | The chunker and unit test 1 move from the last step of Phase 3 into the worker part, so the worker builds real content units from the start instead of one placeholder chunk per file. Replaces D41's placement | decided (Sep 27) |
+| D45 | Photo date and place to the vision model | EXIF date taken and GPS are read from the original bytes (`ingest/images.py`) and passed to `Vision.describe` as `PhotoDetails`; the Phase 4 prompt tells the model to use them only when they help, naming place and time in the description and tags. Date and GPS only; no new columns (a structured date-taken column is a later option). An image without them works as before. Michael's addition | decided (Sep 27) |
+| D46 | A naive chunker | Fixed windows of `CHUNK_SIZE_CHARS` (1,600) with `CHUNK_OVERLAP_CHARS` (240) overlap, each ending at its last space; sizes in characters, not tokens. The chunker shows the structure (content units with offsets); the recursive paragraph → sentence → word split is noted in the design as the next step. Michael's addition | decided (Sep 27) |
+| D47 | A failed attempt goes back to `pending` at once | The adapter's own backoff covers blips; the asset gets its next full pass right away, and after `MAX_ATTEMPTS` it is `failed`. An expired lease counts as an attempt: at the cap the reaper marks the asset `failed` instead of re-queueing it. Chosen for the simpler claim query over a delay of one lease length | decided (Sep 27) |
+| D48 | An asset is found by its file name | Every asset gets one `filename` search unit, keyword-indexed and embedded like the others: the full name, then its words split on anything that is not a letter or digit (`notes-lisbon.txt notes lisbon txt`), because Postgres keeps a bare file name as one token and "lisbon" would not find it. Original filename only, not aliases (they arrive after processing). No migration. Search needs no new path, only a `"filename"` snippet kind whose text is the filename (contract change); the UI labels it and marks the query words. Kept small on purpose: a misleading filename snippet in the vector tail is a known limitation, checked in Phase 6, not fixed now. Michael's addition | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -340,31 +346,38 @@ that must show its work. The adapter interfaces are designed here, against the w
 2. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
    The `Reranker` interface arrives with search in Phase 5 (D16).
 3. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
-   fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
+   fallback, a filename containing `invalid` always fails validation; the "once" mode comes with the
+   repair retry in Phase 4) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
    byte hash). Selected by `AI_PROVIDER`. The fixture dict holds hand-written metadata for the files the
    demo uploads, so the whole pipeline runs on static data until Phase 4.
-4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
+4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode; read date taken and GPS
+   from the original for the vision call (D45).
 5. `ingest/summary_source.py` (D16): strategy with `WholeFile` (live), `Head` (live fallback, token
    budget), `MapReduce` (stub raising `NotImplementedError` with the README note). Decides which text the
    vision model sees; the chunker decides the content units independently.
 6. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
    preprocess, describe via the summary source, build units, embed in one batch, commit metadata + units +
-   `ready` in one transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up →
-   back to `pending` via the lease; `attempts = 3` → `failed` with the message). `reaper()` on startup and
+   `ready` in one transaction) and `run_once()`; the loop that repeats it is `WorkerPool._work_loop` in
+   `ingest/pool.py`; the outer retry loop (adapter gave up →
+   back to `pending` at once; `attempts = 3` → `failed` with the message; an expired lease at the cap →
+   `failed`). `reaper()` on startup and
    every minute.
-7. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
-   loop. Wake-up triggers a claim; the timeout is the poll guarantee.
+7. Listener (`ingest/pool.py`): dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s
+   timeout, reconnect loop. Wake-up triggers a claim; the timeout is the poll guarantee.
 8. Two ways to run the pool (D19): the app's startup hook starts `WORKER_THREADS` threads when
    `WORKER_ENABLED=true` (the default, and how the deployed container runs); `uv run kms worker` runs the
    same pool as its own process for the checklist and as the scale path. Tests and `make dev` with the
    worker off use the flag.
 9. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
    commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
-10. `ingest/chunker.py` (D41), the last step: recursive paragraph → sentence → word split, configurable
-    target/max/overlap, character offsets; unit test 1. Size units (chars or tokens) decided in its plan.
+10. `ingest/chunker.py` (D41), built with the worker in step 6 (D44): fixed character windows ending at a space,
+    configurable size and overlap, character offsets; unit test 1 (D46).
+11. The filename unit (D48), its own small part after the pool: `filename_body(filename) -> str` in
+    `ingest/worker.py` (full name, then its words), and `build_units` adds one `filename` unit after the
+    metadata unit. One unit test of `filename_body`; integration 5a checks the unit is written.
 
 **Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
-metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
+metadata plus image unit plus filename unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
 `failed` with error; retry endpoint resets). Tests drive the worker with `run_once()` and set `started_at`
 directly in SQL for the lease case, so nothing depends on timing.
 
@@ -394,10 +407,10 @@ is exercised by its real caller: upload a file and read Gemini's metadata back f
 
 1. `ai/errors.py` (D24): transient vs permanent classification; tenacity backoff with jitter, honouring
    Gemini's `RetryInfo.retryDelay`. SDK retries off on both clients.
-2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate → normalise →
+2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate →
    one repair retry → permanent error; lowest thinking level, D25; on an overloaded answer it moves to the
    next id in `VISION_MODELS` and reports which model answered, D23), `VoyageEmbedder` (batched,
-   `input_type` query/document). Prompts live in `ai/prompts/`. `VISION_MODELS` replaces the single
+   `input_type` query/document). Adapters return validated metadata; the worker normalises it. Prompts live in `ai/prompts/`; the image prompt uses the photo's date and place when given (D45). `VISION_MODELS` replaces the single
    `VISION_MODEL` setting.
 3. Migration 0002 adds `assets.vision_model`; the worker writes the answering model with the metadata.
 4. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of
@@ -446,14 +459,16 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
    `QUERY_CACHE_SIZE`, keyed on model + normalised query; no separate cache module) and run keyword
    concurrently with it (thread pool of 2), fuse, group, no-op rerank, page `(offset, limit)` with cap 100,
    one final fetch of asset rows by id. Snippet: the metadata unit's text for images, the best chunk's
-   text for text files, with `start_char`/`end_char`.
+   text for text files, with `start_char`/`end_char`. When the best unit is the filename unit (D48):
+   kind `"filename"`, text the asset's filename, no offsets.
 6. `GET /api/search?collection=&q=&page=`.
 
 **Tests that pass here.** Unit 2 (RRF + grouping properties). Integration 5b (pending asset absent from
 search, present once `ready`). Integration 8 (both-path hit outranks single-path hits; collection scope
 holds; a text hit points at the right chunk offsets; page 2 has no repeats). Integration test of D42: in a
 collection with no picture- or document-related content, "picture" ranks the images first and "document"
-ranks the text files first.
+ranks the text files first. Integration test of D48: one word of a filename finds that asset, with a
+`"filename"` snippet.
 
 **Demo.** Seed a few hand-written text files and two images with the fake provider, then
 `curl "/api/search?collection=demo&q=..."` shows ranked assets, snippets with offsets, normalised scores
@@ -526,6 +541,9 @@ approved. Until the backend's Phase 5 passes, every call is answered by mock res
 5. Asset detail view: metadata fields, visible text, the file. "Open in a new tab" and "Download" for the file,
    both in the detail view and on each file tile (Michael, Sep 27).
 6. Empty states and the seed collection as the default selection.
+7. A filename match (D48): the `"filename"` snippet kind in the TS types, a label for it on the result card,
+   the filename as the snippet text with the query words marked, one mock result that shows it. The detail
+   view needs no change.
 
 **Tests that pass here.** None automated, by the test plan's choice. Manual checklist items 1, 2, 3, 4, 9
 run locally.
@@ -609,7 +627,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | Test (test plan) | Phase |
 | --- | --- |
 | Smoke: health through test client (not in plan) | 0 |
-| 1 Chunker | 3, last step (D41) |
+| 1 Chunker | 3, with the worker (D44) |
 | 6 Dedup + race | 2 |
 | Upload service function → pending + NOTIFY (not in plan) | 2 |
 | 3 Schema normalisation | 3 |
@@ -621,6 +639,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | 5b Absent while pending, present when ready | 5 |
 | 8 Hybrid search properties | 5 |
 | Found by kind: "picture" → images, "document" → text files (D42, not in plan) | 5 |
+| Found by file name: a filename word → that asset, `"filename"` snippet (D48, not in plan) | 5 |
 | 9 Live end to end | 6 |
 | Reranker / pg_trgm unit tests | 9 |
 

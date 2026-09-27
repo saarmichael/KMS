@@ -4,6 +4,7 @@ SQLAlchemy Core is used for queries and by Alembic. LISTEN/NOTIFY needs a dedica
 autocommit connection that is not part of the pool, so it uses psycopg directly.
 """
 
+import logging
 import time
 from contextlib import contextmanager
 from uuid import UUID
@@ -13,6 +14,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
 from kms.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # The queue's wake-up channel: upload and retry notify on it, the worker listens on it.
 ASSET_PENDING_CHANNEL = "asset_pending"
@@ -25,6 +28,11 @@ def get_engine() -> Engine:
     global _engine
     if _engine is None:
         _engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+        logger.info(
+            "database_engine_created host=%s database=%s",
+            _engine.url.host,
+            _engine.url.database,
+        )
     return _engine
 
 
