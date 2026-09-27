@@ -109,12 +109,12 @@ class CollectionList(BaseModel):
 class Snippet(BaseModel):
     """Why a search result matched: the part of the asset that matched best."""
 
-    kind: Literal["metadata", "content", "image", "filename"]
+    kind: Literal["metadata", "content", "image", "visible_text", "filename"]
     text: str
     start_char: int | None
     end_char: int | None
-    sentence_start_char: int | None
-    sentence_end_char: int | None
+    sentence_start: int | None
+    sentence_end: int | None
 
 
 class SearchResult(BaseModel):

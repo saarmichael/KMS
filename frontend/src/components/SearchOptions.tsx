@@ -20,11 +20,12 @@ const ASSET_TYPES: { value: Asset['asset_type']; label: string }[] = [
   { value: 'text', label: 'Text files' },
 ]
 
-// The same words as the "In the …" labels on the result cards.
+// The same words as the "In the …" labels on the result cards. A match on the pixels has no chip, so it is
+// always searched.
 const PARTS: { value: Snippet['kind']; label: string }[] = [
   { value: 'content', label: 'Text' },
   { value: 'metadata', label: 'Description' },
-  { value: 'image', label: 'Image' },
+  { value: 'visible_text', label: 'Text in image' },
   { value: 'filename', label: 'File name' },
 ]
 

@@ -26,7 +26,7 @@ def search_collection(
     match: Annotated[list[MatchKind] | None, Query()] = None,
     asset_type: Annotated[list[Literal["image", "text"]] | None, Query()] = None,
     found_in: Annotated[
-        list[Literal["metadata", "content", "image", "filename"]] | None, Query()
+        list[Literal["metadata", "content", "image", "visible_text", "filename"]] | None, Query()
     ] = None,
 ) -> SearchResponse:
     """One page of the assets in a collection that match a query, in the chosen order.
@@ -63,8 +63,8 @@ def search_collection(
             text=found.snippet.text,
             start_char=found.snippet.start_char,
             end_char=found.snippet.end_char,
-            sentence_start_char=found.snippet.sentence_start_char,
-            sentence_end_char=found.snippet.sentence_end_char,
+            sentence_start=found.snippet.sentence_start,
+            sentence_end=found.snippet.sentence_end,
         )
         results.append(
             SearchResult(

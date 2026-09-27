@@ -31,8 +31,8 @@ class UnitHit:
         rank: The unit's place in its path's list, 1 for the best, with no gaps.
         all_words: True when the keyword path found every query word in the unit; always False
             on the vector path.
-        unit_kind: Which part of the asset the unit is: "metadata", "content", "image" or
-            "filename".
+        unit_kind: Which part of the asset the unit is: "metadata", "content", "image",
+            "visible_text" or "filename".
         asset_type: The asset's type, "image" or "text".
     """
 

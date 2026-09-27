@@ -1,8 +1,7 @@
 # Working agreement
 
 Michael drafts the ideas and takes every decision. Claude turns approved plans into code. The aim is to
-move fast while Michael knows, recognises and has approved every moving part of the codebase. Michael
-will present this code in an interview and must be able to explain every line of it.
+move fast while Michael knows, recognises and has approved every moving part of the codebase. 
 
 Phase gates, commit rhythm and the `make` targets are in `PLAN.md` under "How we work". This file adds
 how a phase is planned and how code is written.

@@ -30,22 +30,22 @@ class MatchSnippet:
     """Why an asset matched: the part of it that matched best.
 
     Attributes:
-        kind: "metadata", "content", "image" or "filename".
-        text: The passage for "content", the description for "metadata" and "image", the
-            filename for "filename".
+        kind: "metadata", "content", "image", "visible_text" or "filename".
+        text: The passage for "content", the description for "metadata" and "image", the text
+            read from the image for "visible_text", the filename for "filename".
         start_char: Where the passage starts in the file; only for "content".
         end_char: Where the passage ends in the file; only for "content".
-        sentence_start_char: Where the passage's sentence closest in meaning to the query starts
-            in the file; only for "content" matched by meaning.
-        sentence_end_char: Where that sentence ends in the file.
+        sentence_start: Where the sentence of `text` closest in meaning to the query starts,
+            counted in `text`; only for an asset matched by meaning.
+        sentence_end: Where that sentence ends, counted in `text`.
     """
 
     kind: str
     text: str
     start_char: int | None
     end_char: int | None
-    sentence_start_char: int | None
-    sentence_end_char: int | None
+    sentence_start: int | None
+    sentence_end: int | None
 
 
 @dataclass(frozen=True)
@@ -130,6 +130,8 @@ def build_snippet(row: RowMapping) -> MatchSnippet:
     # An image unit has no text, so it shows the description.
     if kind in ("metadata", "image"):
         return MatchSnippet(kind, row["description"], None, None, None, None)
+    if kind == "visible_text":
+        return MatchSnippet(kind, row["visible_text"], None, None, None, None)
     if kind == "filename":
         return MatchSnippet(kind, row["filename"], None, None, None, None)
     raise ValueError(f"unknown unit kind: {kind}")
@@ -212,33 +214,35 @@ def fetch_found_assets(page_matches: list[AssetMatch]) -> list[FoundAsset]:
 def mark_closest_sentences(
     query_vector: Sequence[float], found: list[FoundAsset]
 ) -> list[FoundAsset]:
-    """Point each passage matched by meaning at its sentence closest to the query.
+    """Point each snippet matched by meaning at its sentence closest to the query.
 
-    A passage matched by meaning may share no word with the query, so nothing in it can be
+    A snippet matched by meaning may share no word with the query, so nothing in it can be
     marked; its closest sentence shows the user where the meaning is. The sentences are
-    embedded by the same model that ranked the passage, so the sentence reflects why it ranked.
+    embedded by the same model that ranked the asset, so the sentence reflects why it ranked.
+    Every kind of snippet is treated alike: its `text` is split, whether a passage, a
+    description or a file name (which comes out as one sentence).
 
     Args:
         query_vector: The query's vector.
         found: The page's assets, in their final order.
 
     Returns:
-        The same assets in the same order. Each one matched by meaning whose snippet is a
-        passage has its closest sentence's offsets set; the rest are unchanged. On a vendor
+        The same assets in the same order. Each one matched by meaning has its closest
+        sentence's offsets in its snippet's `text` set; the rest are unchanged. On a vendor
         error, `found` unchanged: the sentence only adds to results the user already has, so
         it never fails the search.
     """
-    # Each qualifying asset's place on the page, with its passage's sentences.
+    # Each asset matched by meaning, by its place on the page, with its snippet's sentences.
     sentences_by_place = {}
     for place, found_asset in enumerate(found):
-        if found_asset.match == MatchKind.SEMANTIC and found_asset.snippet.kind == "content":
+        if found_asset.match == MatchKind.SEMANTIC:
             sentences = split_sentences(found_asset.snippet.text)
             if sentences:
                 sentences_by_place[place] = sentences
     if not sentences_by_place:
         return found
 
-    # Every sentence of the page in one call. Sentences are stored text, like the chunks they
+    # Every sentence of the page in one call. Sentences are stored text, like the units they
     # come from, so they are embedded as documents.
     sentence_texts = []
     for sentences in sentences_by_place.values():
@@ -263,12 +267,8 @@ def mark_closest_sentences(
                 closest = sentence
                 closest_similarity = similarity
 
-        # The sentence's offsets are within the passage; the passage's start makes them the file's.
-        snippet = found[place].snippet
         snippet = replace(
-            snippet,
-            sentence_start_char=snippet.start_char + closest.start,
-            sentence_end_char=snippet.start_char + closest.end,
+            found[place].snippet, sentence_start=closest.start, sentence_end=closest.end
         )
         marked[place] = replace(found[place], snippet=snippet)
     return marked
@@ -343,7 +343,7 @@ def search(
     results = mark_closest_sentences(embed_query(model, query), results)
     sentence_count = 0
     for result in results:
-        if result.snippet.sentence_start_char is not None:
+        if result.snippet.sentence_start is not None:
             sentence_count += 1
 
     logger.info(

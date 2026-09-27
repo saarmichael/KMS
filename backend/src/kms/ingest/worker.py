@@ -174,11 +174,10 @@ def metadata_body(metadata: Metadata) -> str:
         metadata: The normalised metadata.
 
     Returns:
-        Title, description, the tags and the visible text if there is any, one block each.
+        Title, description and the tags, one block each. The text read from an image is not
+        here: it has a unit of its own.
     """
     blocks = [metadata.title, metadata.description, "tags: " + ", ".join(metadata.tags)]
-    if metadata.visible_text:
-        blocks.append(metadata.visible_text)
     return "\n\n".join(blocks)
 
 
@@ -215,8 +214,9 @@ def build_units(
         chunks: The text file's chunks; empty for an image.
 
     Returns:
-        The metadata unit, the filename unit, then the image unit for an image or one content
-        unit per chunk.
+        The metadata unit, the filename unit, then for an image the image unit and, when the
+        image has readable text, the visible_text unit; for a text file one content unit per
+        chunk.
     """
     body = metadata_body(metadata)
     name_body = filename_body(filename)
@@ -226,6 +226,11 @@ def build_units(
     ]
     if asset_type == "image":
         units.append(Unit("image", 0, None, None, None, prepared_image))
+        # A unit of its own, so a word read from the image is reported and filtered as such,
+        # not as part of the description.
+        if metadata.visible_text:
+            text = metadata.visible_text
+            units.append(Unit("visible_text", 0, None, None, text, text))
     for index, chunk in enumerate(chunks):
         units.append(Unit("content", index, chunk.start, chunk.end, chunk.text, chunk.text))
     return units

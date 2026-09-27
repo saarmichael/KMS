@@ -67,7 +67,8 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D48 | An asset is found by its file name | Every asset gets one `filename` search unit, keyword-indexed and embedded like the others: the full name, then its words split on anything that is not a letter or digit (`notes-lisbon.txt notes lisbon txt`), because Postgres keeps a bare file name as one token and "lisbon" would not find it. Original filename only, not aliases (they arrive after processing). No migration. Search needs no new path, only a `"filename"` snippet kind whose text is the filename (contract change); the UI labels it and marks the query words. Kept small on purpose: a misleading filename snippet in the vector tail is a known limitation, checked in Phase 6, not fixed now. Michael's addition | decided (Sep 27) |
 | D49 | One password in front of the deployed app | HTTP Basic Auth as middleware over every path except `/api/health`; one shared `APP_PASSWORD` (any username), compared in constant time; empty turns it off, so local dev and tests are open. The browser's own prompt, so the UI needs no change. Guards the vendor credit behind the public URL once live runs real providers; teardown is changing or emptying the password. Brought forward from Phase 8. Michael's addition | decided (Sep 27) |
 | D50 | How a result matched, and the user's view of the results | Each unit is an `exact` match (the keyword search found every query word in it), `partial` (some words) or `semantic` (meaning only). A plain query now finds keyword matches on any word, all-words units first; a query with quotes, `-word` or `or` stays strict. An asset takes its strongest match and its snippet from the unit that shows it; its score stays its best unit's, against the top of the whole query. The API returns `match` per result and takes `order` (`exact_first` default, `tiered`, `blended`) and repeatable filters `match`, `asset_type`, `found_in`. Filters and order run in the backend over the fused list, then the cap and the page, so a change is a new request for page 1 (the query vector is cached). Filters narrow the best 100 units per path; they do not search deeper. A real reranker must keep each result in its tier. Michael's addition | decided (Sep 27) |
-| D51 | The closest sentence of a match by meaning | For a result whose `match` is `semantic` and whose snippet is a text passage, the search finds the passage's sentence closest in meaning to the query: the passage is split into sentences with `pysbd` (rule-based: abbreviations, numbered lists, one line per item; character offsets), all such sentences of the page are embedded in one call with the same embedder as `"document"`, and the closest by cosine to the cached query vector wins. The API returns it as `snippet.sentence_start_char`/`sentence_end_char`, offsets in the file; the card opens its preview on it and the dialog tints it and scrolls to it. Our own embedder, not a second model (Jev was weighed), so the sentence comes from the same model that ranked the result. Computed during the search, after paging, so only shown results cost anything; not stored at ingest (a migration and about 12x the vector rows). A failed sentence embedding leaves the fields `null` and the search succeeds. Phase 9, item 3 | decided (Sep 27) |
+| D51 | The closest sentence of a match by meaning | For every result whose `match` is `semantic`, whatever its snippet (a passage, a description, a file name), the search finds the sentence of the snippet's text closest in meaning to the query: the text is split into sentences with `pysbd` (rule-based: abbreviations, numbered lists, one line per item; character offsets), all such sentences of the page are embedded in one call with the same embedder as `"document"`, and the closest by cosine to the cached query vector wins. The API returns it as `snippet.sentence_start`/`sentence_end`, counted in the snippet's `text`, so every kind goes through the same code; the card opens its preview on it and the dialog marks it where that text shows (the passage, scrolled to; the description; the file name). Our own embedder, not a second model (Jev was weighed), so the sentence comes from the same model that ranked the result. Computed during the search, after paging, so only shown results cost anything; not stored at ingest (a migration and about 12x the vector rows). A failed sentence embedding leaves the fields `null` and the search succeeds. Phase 9, item 3 | decided (Sep 27) |
+| D52 | Text in an image is its own search unit | An image's `visible_text` becomes its own unit, kind `visible_text`, written only when the text is not empty; the `metadata` unit keeps title, description and tags. A word read from the image is then reported as `snippet.kind` `"visible_text"` (`text` is the asset's `visible_text`, no offsets), filtered by `found_in=visible_text` (its own "Text in image" chip), and embedded on its own. Alternative: one unit and the label worked out at snippet time, which leaves the filter wrong. No migration (`kind` is plain text); existing collections are wiped and uploaded again. Phase 9, item 4 | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1108,14 +1109,15 @@ collection, upload, search. Ten minutes, the interviewer's script.
    metadata-unit text. One unit test (order changes, candidate set does not) and one matrix row.
 2. **pg_trgm typo correction**: vocabulary table from `ts_stat`, trigram index, per-term correction before
    the keyword query. One migration, one unit test, one matrix row ("blak hair").
-3. **Closest sentence of a match by meaning (D51)**: for a `semantic` result with a text passage, the
-   sentence closest to the query is returned as offsets and marked in the card and the dialog. Two parts,
+3. **Closest sentence of a match by meaning (D51)**: for every `semantic` result, the sentence of its
+   snippet closest to the query is returned as offsets and marked in the card and the dialog. Three parts,
    on branch `ui-fixes`.
 
 | Part | What | Status |
 | --- | --- | --- |
 | 1 | Backend and contract: splitter, the sentence step in the search, two snippet fields | done (20e5f2e) |
-| 2 | Frontend: types, mock, card preview and dialog tint | implemented, awaiting review |
+| 2 | Frontend: types, mock, card preview and dialog tint | done (5bc2032) |
+| 3 | Every snippet kind: descriptions and file names too, offsets in `text`, one shared component | implemented, awaiting review |
 
 **Item 3, Part 1 plan (approved Sep 27).** Settled: our own embedder, not Jev; computed during the search,
 only for the page; only for `semantic` results whose snippet kind is `content`; `pysbd` as the splitter (amended Sep 27:
@@ -1162,6 +1164,57 @@ meaning to your query". `AssetDetailDialog.tsx`: the passage split into before, 
 sentence tinted the same way; the scroll target is the sentence, then the first marked word, then the
 passage start. No new files; tested in the browser (a semantic text result, an exact one, an image, and
 the dialog of each).
+
+**Item 3, Part 3 plan (approved Sep 27).** Found in the browser: most semantic results show a description or
+a file name, not a passage, so Parts 1–2 marked almost nothing. Every snippet kind now gets its sentence
+through one path. Backend: `mark_closest_sentences` takes every `SEMANTIC` result, splits `snippet.text`,
+and stores the closest sentence's offsets counted in `text` (no `start_char` added); a file name comes out
+of `pysbd` as one piece, so the whole name is marked. The fields are renamed `sentence_start` /
+`sentence_end` in `MatchSnippet`, `api/schemas.py`, `api/types.ts` and contract §6.8, since they are no
+longer file offsets. Frontend: new `components/ClosestSentenceText.tsx`, `ClosestSentenceText({ text,
+query, sentence, sentenceRef?, firstMarkRef? })` and `SentenceRange { start, end }`: slices `text` once,
+marks the sentence in teal with the tooltip, the rest through `HighlightedText`; with `sentence` null it is
+`HighlightedText`. `SearchResultCard`: one path for every kind, the preview starts at the sentence
+("…" before it). `AssetDetailDialog`: the one place kinds differ, mapping the sentence to where the
+snippet's text shows (the passage in the file text, scrolled to; the description; the file name line).
+Tests: `test_non_content_snippet_gets_no_sentence` replaced by `test_description_snippet_gets_a_sentence`
+and `test_filename_snippet_is_one_sentence`; offsets in the unit and integration tests are counted in
+`text`.
+
+4. **Text in an image as its own search unit (D52)**: a word read from an image is shown as "In the text
+   in the image" and filtered by its own chip, not as part of the description. Two parts, on branch `ui-fixes`.
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | Backend and contract: the new unit, its snippet, the `found_in` value | implemented, awaiting review |
+| 2 | Frontend: type, card label, chip, dialog, mock; browser check | implemented, awaiting review |
+
+**Item 4, Part 1 plan (approved Sep 27).** Settled: the unit kind is `visible_text`, after the field it holds;
+its own filter chip; no migration; existing collections are wiped and uploaded again, no reindex command.
+- *`ingest/worker.py`:* `metadata_body(metadata) -> str` returns title, description and tags only.
+  `build_units(...)`, same signature, adds `Unit("visible_text", 0, None, None, text, text)` after the `image`
+  unit for an image whose `visible_text` is not empty; none for an image without text or for a text file.
+- *`models.py`:* the `kind` column comment lists `visible_text`.
+- *`search/__init__.py`:* the `UnitHit.unit_kind` docstring lists `visible_text`.
+- *`search/service.py`:* `build_snippet` returns `MatchSnippet("visible_text", row["visible_text"], None, None,
+  None, None)` for the new kind; the closest-sentence step takes it like any other text.
+- *API:* `"visible_text"` added to the `Literal` of `Snippet.kind` in `api/schemas.py` and of `found_in` in
+  `api/search.py`. Contract §6.8: the new `kind` and `found_in` value; D52 in the decision table.
+- *Tests:* `test_worker.py`: `test_image_text_gets_its_own_unit`, `test_image_without_text_has_no_image_text_unit`,
+  `test_metadata_unit_leaves_out_image_text`. `test_search_service.py`: `test_visible_text_snippet_is_the_image_text`.
+  `test_search_api.py`: `test_word_only_in_image_text_is_found_in_visible_text`,
+  `test_found_in_without_visible_text_drops_image_text_match`.
+
+**Item 4, Part 2 plan (approved Sep 27).** `api/types.ts`: the new kind. `SearchResultCard.tsx`: label "In the
+text in the image"; the extra "Text in the image" block is hidden when the snippet already is that text.
+The preview of a `visible_text` snippet starts just before its first query word, as a passage does,
+in the monospace style of the image-text block (amended Sep 28: the text is often long, and the matched word
+fell below the card's three lines). `SearchOptions.tsx`: a "Text in image" chip, and the "Image" chip removed (amended Sep 28, Michael: a
+pixel match is always searched and cannot be filtered out; the API keeps `found_in=image`); `searchView.ts`: `visible_text` in the default
+`foundIn`, so the new part is searched unless the user turns it off. `AssetDetailDialog.tsx`: the closest sentence of a
+`visible_text` snippet is marked in the image-text section. `mocks/store.ts`: one mock result of the new kind.
+Tested in the browser: "Israeli" with every chip on and with "Text in image" off; the Bamba card keeps "In the
+description".
 
 Each is its own gate; each can be skipped without touching anything else.
 

@@ -96,6 +96,7 @@ def unit_row(kind: str, body: str | None = None, start_char=None, end_char=None)
     return {
         "filename": "notes-lisbon.txt",
         "description": "Notes from a trip to Lisbon.",
+        "visible_text": "TRAM 28 Lisboa",
         "unit_kind": kind,
         "unit_body": body,
         "unit_start_char": start_char,
@@ -145,6 +146,14 @@ def test_snippet_metadata_and_image_use_description(kind):
     assert (snippet.start_char, snippet.end_char) == (None, None)
 
 
+def test_visible_text_snippet_is_the_image_text():
+    snippet = build_snippet(unit_row("visible_text", body="TRAM 28 Lisboa"))
+
+    assert snippet.kind == "visible_text"
+    assert snippet.text == "TRAM 28 Lisboa"
+    assert (snippet.start_char, snippet.end_char) == (None, None)
+
+
 def test_snippet_filename_uses_filename():
     snippet = build_snippet(unit_row("filename", body="notes-lisbon.txt notes lisbon txt"))
 
@@ -162,8 +171,9 @@ def test_closest_sentence_marked_on_semantic_passage(use_embedder):
 
     [result] = mark_closest_sentences(QUERY_VECTOR, [found_asset(MatchKind.SEMANTIC)])
 
-    # The second sentence starts 26 characters into the passage, which starts at 100.
-    assert (result.snippet.sentence_start_char, result.snippet.sentence_end_char) == (126, 161)
+    # The second sentence starts 26 characters into the passage, whatever the passage's place in
+    # the file.
+    assert (result.snippet.sentence_start, result.snippet.sentence_end) == (26, 61)
     assert result.snippet.start_char == 100
 
 
@@ -178,14 +188,24 @@ def test_exact_and_partial_results_get_no_sentence(use_embedder):
     assert embedder.calls == []
 
 
-@pytest.mark.parametrize("kind", ["metadata", "image", "filename"])
-def test_non_content_snippet_gets_no_sentence(use_embedder, kind):
-    use_embedder(SentenceEmbedder({}))
-    found = [found_asset(MatchKind.SEMANTIC, kind=kind, text="Notes from a trip to Lisbon.")]
+@pytest.mark.parametrize("kind", ["metadata", "image"])
+def test_description_snippet_gets_a_sentence(use_embedder, kind):
+    description = "A trip to Lisbon. Custard tarts at a small bakery."
+    use_embedder(SentenceEmbedder({"Custard tarts at a small bakery.": [1.0, 0.0]}))
+    found = [found_asset(MatchKind.SEMANTIC, kind=kind, text=description)]
 
     [result] = mark_closest_sentences(QUERY_VECTOR, found)
 
-    assert (result.snippet.sentence_start_char, result.snippet.sentence_end_char) == (None, None)
+    assert (result.snippet.sentence_start, result.snippet.sentence_end) == (18, len(description))
+
+
+def test_filename_snippet_is_one_sentence(use_embedder):
+    use_embedder(SentenceEmbedder({}))
+    found = [found_asset(MatchKind.SEMANTIC, kind="filename", text="notes-lisbon.txt")]
+
+    [result] = mark_closest_sentences(QUERY_VECTOR, found)
+
+    assert (result.snippet.sentence_start, result.snippet.sentence_end) == (0, 16)
 
 
 def test_one_embed_call_for_the_whole_page(use_embedder):
@@ -201,9 +221,9 @@ def test_one_embed_call_for_the_whole_page(use_embedder):
 
     assert len(embedder.calls) == 1
     assert len(embedder.calls[0]) == 4
-    assert results[0].snippet.sentence_start_char is not None
-    assert results[1].snippet.sentence_start_char is None
-    assert results[2].snippet.sentence_start_char is not None
+    assert results[0].snippet.sentence_start is not None
+    assert results[1].snippet.sentence_start is None
+    assert results[2].snippet.sentence_start is not None
 
 
 def test_no_call_when_no_result_qualifies(use_embedder):

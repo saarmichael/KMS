@@ -59,14 +59,23 @@ export async function search(collection: string | null, query: string | null, pa
     let snippet
     if (stored.asset_type === 'text') {
       snippet = contentSnippet(await stored.body.text(), words)
+    } else if (inImageTextOnly(stored.metadata, words)) {
+      snippet = {
+        kind: 'visible_text' as const,
+        text: stored.metadata.visible_text ?? '',
+        start_char: null,
+        end_char: null,
+        sentence_start: null,
+        sentence_end: null,
+      }
     } else {
       snippet = {
         kind: 'image' as const,
         text: stored.metadata.description,
         start_char: null,
         end_char: null,
-        sentence_start_char: null,
-        sentence_end_char: null,
+        sentence_start: null,
+        sentence_end: null,
       }
     }
     // The mock matches words only, so a result is exact when it holds every word; it ignores the filters.
@@ -253,6 +262,14 @@ function findAsset(id: string): StoredAsset | MockResponse {
   return stored
 }
 
+// True when a query word is in the image's text but in none of the description, title or tags, so the
+// match came from the text read from the image.
+function inImageTextOnly(metadata: AssetMetadata, words: string[]) {
+  const imageText = (metadata.visible_text ?? '').toLowerCase()
+  const described = [metadata.title, metadata.description, metadata.tags.join(' ')].join(' ').toLowerCase()
+  return words.some((word) => imageText.includes(word)) && !words.some((word) => described.includes(word))
+}
+
 // A content snippet: about 200 characters around the first query word found in the text.
 function contentSnippet(text: string, words: string[]) {
   const lowered = text.toLowerCase()
@@ -271,7 +288,7 @@ function contentSnippet(text: string, words: string[]) {
     text: text.slice(start, end),
     start_char: start,
     end_char: end,
-    sentence_start_char: null,
-    sentence_end_char: null,
+    sentence_start: null,
+    sentence_end: null,
   }
 }

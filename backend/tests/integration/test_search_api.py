@@ -8,7 +8,7 @@ from typing import Literal
 
 import pytest
 from PIL import Image
-from sqlalchemy import insert
+from sqlalchemy import insert, update
 
 from kms.ai import set_embedder
 from kms.ai.interfaces import Embedder
@@ -241,8 +241,8 @@ def test_text_hit_points_at_the_chunk_offsets(client, db, stub_embedder):
         "text": "the harbour at dusk",
         "start_char": 120,
         "end_char": 139,
-        "sentence_start_char": None,
-        "sentence_end_char": None,
+        "sentence_start": None,
+        "sentence_end": None,
     }
 
 
@@ -323,8 +323,8 @@ def test_filename_word_finds_the_asset(client):
         "text": "IMG_2101.jpg",
         "start_char": None,
         "end_char": None,
-        "sentence_start_char": None,
-        "sentence_end_char": None,
+        "sentence_start": None,
+        "sentence_end": None,
     }
 
 
@@ -400,6 +400,37 @@ def test_found_in_takes_the_snippet_from_the_chosen_part(client, db, stub_embedd
     assert content_only == "content"
 
 
+def insert_form_image(db):
+    """An image whose description does not hold "israeli" but whose text in the image does."""
+    asset_id = insert_asset(db, "demo", "IMG_2168.jpg", asset_type="image")
+    with db.begin() as connection:
+        connection.execute(
+            update(assets).where(assets.c.id == asset_id).values(visible_text="Nationality Israeli")
+        )
+    insert_unit(db, asset_id, "demo", body="A hotel registration form.", kind="metadata")
+    insert_unit(db, asset_id, "demo", body="Nationality Israeli", kind="visible_text")
+    return asset_id
+
+
+def test_word_only_in_image_text_is_found_in_visible_text(client, db, stub_embedder):
+    asset_id = insert_form_image(db)
+
+    result = search(client, "israeli")["results"][0]
+
+    assert result["asset"]["id"] == str(asset_id)
+    assert result["match"] == "exact"
+    assert result["snippet"]["kind"] == "visible_text"
+    assert result["snippet"]["text"] == "Nationality Israeli"
+
+
+def test_found_in_without_visible_text_drops_image_text_match(client, db, stub_embedder):
+    insert_form_image(db)
+
+    body = search(client, "israeli", found_in=["metadata", "content", "image", "filename"])
+
+    assert body["results"] == []
+
+
 # --- closest sentence ----------------------------------------------------------
 
 
@@ -422,9 +453,9 @@ def test_semantic_text_hit_points_at_closest_sentence(client, db, stub_embedder)
     result = search(client, "pastry")["results"][0]
 
     assert result["match"] == "semantic"
-    # The second sentence starts 26 characters into the passage.
-    assert result["snippet"]["sentence_start_char"] == 526
-    assert result["snippet"]["sentence_end_char"] == 500 + len(passage)
+    # The second sentence starts 26 characters into the passage, counted in the snippet's text.
+    assert result["snippet"]["sentence_start"] == 26
+    assert result["snippet"]["sentence_end"] == len(passage)
 
 
 def test_exact_hit_has_no_sentence(client, db, stub_embedder):
@@ -442,5 +473,5 @@ def test_exact_hit_has_no_sentence(client, db, stub_embedder):
     result = search(client, "custard tarts")["results"][0]
 
     assert result["match"] == "exact"
-    assert result["snippet"]["sentence_start_char"] is None
-    assert result["snippet"]["sentence_end_char"] is None
+    assert result["snippet"]["sentence_start"] is None
+    assert result["snippet"]["sentence_end"] is None

@@ -41,14 +41,15 @@ export type UploadResponse = {
 }
 
 // Why a search result matched: a passage of a text file (with its position), the asset's description,
-// or its file name. A passage matched by meaning also says which of its sentences is closest to the query.
+// or its file name. A result matched by meaning also says which sentence of `text` is closest to the query,
+// counted in characters of `text`.
 export type Snippet = {
-  kind: 'metadata' | 'content' | 'image' | 'filename'
+  kind: 'metadata' | 'content' | 'image' | 'visible_text' | 'filename'
   text: string
   start_char: number | null
   end_char: number | null
-  sentence_start_char: number | null
-  sentence_end_char: number | null
+  sentence_start: number | null
+  sentence_end: number | null
 }
 
 // How a result matched: every query word in one part of it, some of the words, or by meaning only.

@@ -6,18 +6,21 @@
 //     result.asset    -> thumbnail (assetFileUrl), title, "Found in" filename (query words marked) and aliases
 //     result.snippet  -> what matched ("In the text" ...) and the text, with the query words marked; a
 //                        passage is cut to start just before its first query word, and the query words
-//                        the cut left out are counted: "2 more matches in this passage →". A passage
-//                        matched by meaning starts on its closest sentence instead, marked in teal
-//                        (snippet.sentence_start_char / sentence_end_char)
-//     asset.metadata.visible_text -> for an image whose text contains a query word: "Text in the image"
+//                        the cut left out are counted: "2 more matches in this passage →". A result
+//                        matched by meaning, whatever the kind of snippet, starts on its closest
+//                        sentence instead (snippet.sentence_start / sentence_end) -> <ClosestSentenceText>
+//     asset.metadata.visible_text -> for an image whose text contains a query word: "Text in the image",
+//                        unless the snippet already is that text
 //     result.score    -> closeness() -> colour of the edge bar and its tooltip
 //     result.match    -> the badge: exact, partial or semantic, in its colour
 //   a click on the card -> onOpen(asset, snippet, query) -> the detail dialog, with the matches marked
 import { assetFileUrl } from '../api/client'
 import type { Asset, SearchResult, Snippet } from '../api/types'
 import { closeness } from '../closeness'
-import { CLOSEST_SENTENCE_CLASS, CLOSEST_SENTENCE_TITLE, MATCH_COLOURS, MATCH_LABELS } from '../searchView'
+import { MATCH_COLOURS, MATCH_LABELS } from '../searchView'
 import { countMatches, excerptAround } from '../queryWords'
+import ClosestSentenceText from './ClosestSentenceText'
+import type { SentenceRange } from './ClosestSentenceText'
 import HighlightedText from './HighlightedText'
 import { DocumentIcon } from './icons'
 
@@ -35,6 +38,7 @@ const SNIPPET_LABELS: Record<Snippet['kind'], string> = {
   content: 'In the text',
   metadata: 'In the description',
   image: 'In the image',
+  visible_text: 'In the text in the image',
   filename: 'In the file name',
 }
 
@@ -43,43 +47,50 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
   const match = closeness(score)
   const title = asset.metadata ? asset.metadata.title : asset.filename
 
-  // The API gives no position for a match in an image's text, so the query words are looked up here.
+  // The API gives no position for a match in an image's text, so the query words are looked up here. When
+  // the snippet is the image's text, the preview already shows it.
   let imageTextExcerpt: string | null = null
-  if (asset.asset_type === 'image' && asset.metadata?.visible_text) {
+  if (asset.asset_type === 'image' && asset.metadata?.visible_text && snippet.kind !== 'visible_text') {
     imageTextExcerpt = excerptAround(asset.metadata.visible_text, query, IMAGE_TEXT_EXCERPT_LENGTH)
   }
 
   // A passage from the middle of a file gets "…" where it was cut: before it unless it starts the file,
-  // after it unless it ends a sentence. A passage is longer than the three lines the card shows, so the
-  // card starts just before the first query word in it; otherwise that word could fall below the cut.
-  let snippetText = snippet.text
-  // Query words in the passage that the cut left out; the card says how many, so the user knows the
+  // after it unless it ends a sentence. A description or a file name is whole.
+  let opening = ''
+  let closing = ''
+  if (snippet.kind === 'content') {
+    if (snippet.start_char !== null && snippet.start_char > 0) {
+      opening = '…'
+    }
+    if (!/[.!?]$/.test(snippet.text.trim())) {
+      closing = '…'
+    }
+  }
+  const fullText = `${opening}${snippet.text}${closing}`
+
+  // The card shows three lines, so the preview starts where the reason for the match is; otherwise it could
+  // fall below the cut. A result matched by meaning starts on the sentence the search named closest to the
+  // query, which is marked; a passage or an image's text without one starts just before its first query word.
+  let previewText = fullText
+  let previewSentence: SentenceRange | null = null
+  if (snippet.sentence_start !== null && snippet.sentence_end !== null) {
+    // The server counts characters, and Array.from splits the text the same way.
+    const characters = Array.from(snippet.text)
+    const cutBefore = snippet.sentence_start > 0 || opening !== '' ? '…' : ''
+    previewText = `${cutBefore}${characters.slice(snippet.sentence_start).join('')}${closing}`
+    previewSentence = {
+      start: cutBefore.length,
+      end: cutBefore.length + snippet.sentence_end - snippet.sentence_start,
+    }
+  } else if (snippet.kind === 'content' || snippet.kind === 'visible_text') {
+    previewText = excerptAround(fullText, query, PASSAGE_EXCERPT_LENGTH) ?? fullText
+  }
+
+  // Query words in a passage that the preview left out; the card says how many, so the user knows the
   // dialog has more to show.
   let moreMatches = 0
-  // A passage matched by meaning may hold no query word at all. The server then names the sentence closest
-  // in meaning to the query, and the card starts on that sentence and marks it instead.
-  let closestSentence: { before: string; sentence: string; after: string } | null = null
   if (snippet.kind === 'content') {
-    const cutAtStart = snippet.start_char !== null && snippet.start_char > 0
-    const endsSentence = /[.!?]$/.test(snippet.text.trim())
-    const passage = `${cutAtStart ? '…' : ''}${snippet.text}${endsSentence ? '' : '…'}`
-    snippetText = excerptAround(passage, query, PASSAGE_EXCERPT_LENGTH) ?? passage
-    moreMatches = countMatches(passage, query) - countMatches(snippetText, query)
-
-    if (snippet.start_char !== null && snippet.sentence_start_char !== null && snippet.sentence_end_char !== null) {
-      // The sentence's offsets are in the file; less the passage's start, they are in the passage. The
-      // server counts characters, and Array.from splits the text the same way.
-      const characters = Array.from(snippet.text)
-      const sentenceStart = snippet.sentence_start_char - snippet.start_char
-      const sentenceEnd = snippet.sentence_end_char - snippet.start_char
-      closestSentence = {
-        before: sentenceStart > 0 || cutAtStart ? '…' : '',
-        sentence: characters.slice(sentenceStart, sentenceEnd).join(''),
-        after: `${characters.slice(sentenceEnd).join('')}${endsSentence ? '' : '…'}`,
-      }
-      const shownText = closestSentence.sentence + closestSentence.after
-      moreMatches = countMatches(passage, query) - countMatches(shownText, query)
-    }
+    moreMatches = countMatches(fullText, query) - countMatches(previewText, query)
   }
 
   return (
@@ -122,18 +133,11 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
           </span>
           <p className="text-xs font-medium tracking-wide text-indigo-600 uppercase">{SNIPPET_LABELS[snippet.kind]}</p>
         </div>
-        <p className="mt-0.5 line-clamp-3 text-sm text-gray-700">
-          {closestSentence ? (
-            <>
-              {closestSentence.before}
-              <mark className={CLOSEST_SENTENCE_CLASS} title={CLOSEST_SENTENCE_TITLE}>
-                <HighlightedText text={closestSentence.sentence} query={query} />
-              </mark>
-              <HighlightedText text={closestSentence.after} query={query} />
-            </>
-          ) : (
-            <HighlightedText text={snippetText} query={query} />
-          )}
+        {/* Text read from an image is set in monospace, as it is in the dialog's visible-text box. */}
+        <p
+          className={`mt-0.5 line-clamp-3 text-gray-700 ${snippet.kind === 'visible_text' ? 'font-mono text-xs' : 'text-sm'}`}
+        >
+          <ClosestSentenceText text={previewText} query={query} sentence={previewSentence} />
         </p>
         {moreMatches > 0 && (
           <p className="mt-1 text-xs font-medium text-indigo-600">

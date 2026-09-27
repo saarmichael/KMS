@@ -66,7 +66,7 @@ search_units = Table(
         nullable=False,
     ),
     Column("collection", Text, nullable=False),  # denormalised for filtering
-    Column("kind", Text, nullable=False),  # metadata | content | image | filename
+    Column("kind", Text, nullable=False),  # metadata | content | image | visible_text | filename
     Column("unit_index", Integer, nullable=False, server_default="0"),
     Column("start_char", Integer),
     Column("end_char", Integer),

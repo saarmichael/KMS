@@ -105,6 +105,38 @@ def test_text_file_has_null_visible_text(db, blob_store):
     assert asset["visible_text"] is None
 
 
+def image_metadata(visible_text: str) -> Metadata:
+    return Metadata(
+        title="Guest form",
+        description="A hotel registration form.",
+        tags=["form"],
+        visible_text=visible_text,
+        image_type="document",
+    )
+
+
+def test_image_text_gets_its_own_unit():
+    metadata = image_metadata("Nationality Israeli")
+
+    units = build_units("image", "IMG_2168.jpg", metadata, jpeg_bytes(), [])
+
+    assert [unit.kind for unit in units] == ["metadata", "filename", "image", "visible_text"]
+    assert units[3].body == "Nationality Israeli"
+    assert units[3].embed_input == "Nationality Israeli"
+
+
+def test_image_without_text_has_no_image_text_unit():
+    units = build_units("image", "red.jpg", image_metadata(""), jpeg_bytes(), [])
+
+    assert [unit.kind for unit in units] == ["metadata", "filename", "image"]
+
+
+def test_metadata_unit_leaves_out_image_text():
+    units = build_units("image", "IMG_2168.jpg", image_metadata("Nationality Israeli"), None, [])
+
+    assert "Israeli" not in units[0].body
+
+
 def test_run_once_returns_false_on_empty_queue(db, blob_store):
     assert run_once() is False
 

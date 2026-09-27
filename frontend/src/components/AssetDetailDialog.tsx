@@ -9,15 +9,17 @@
 //     asset.metadata -> description, tags, visible text, type, model
 //     query (when opened from a search) -> its words marked in the title, filename, description, tags,
 //       visible text and file text; the first one in the matched passage (or the file) scrolled to
-//     snippet.sentence_start_char / sentence_end_char -> for a passage matched by meaning, its closest
-//       sentence marked in teal and scrolled to instead
+//     snippet.sentence_start / sentence_end -> for a result matched by meaning, its closest sentence marked
+//       by <ClosestSentenceText> where the snippet's text shows: the passage (scrolled to), the description,
+//       the visible text (scrolled to) or the file name
 //     <FileActions asset> -> Open in new tab / Download
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { ApiError, assetFileUrl, getAssetText } from '../api/client'
 import type { Asset, Snippet } from '../api/types'
 import { formatAge, formatBytes } from '../format'
-import { CLOSEST_SENTENCE_CLASS, CLOSEST_SENTENCE_TITLE } from '../searchView'
+import ClosestSentenceText from './ClosestSentenceText'
+import type { SentenceRange } from './ClosestSentenceText'
 import FileActions from './FileActions'
 import HighlightedText from './HighlightedText'
 import { CloseIcon, SpinnerIcon } from './icons'
@@ -37,7 +39,8 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
   const closestSentenceMark = useRef<HTMLElement>(null)
   const firstTextMark = useRef<HTMLElement>(null)
   const visibleTextBox = useRef<HTMLDivElement>(null)
-  const firstVisibleTextMark = useRef<HTMLElement>(null)
+  // The closest sentence in the visible text, or else its first query word.
+  const visibleTextTarget = useRef<HTMLElement>(null)
   const [text, setText] = useState<string | null>(null)
   const [textError, setTextError] = useState<string | null>(null)
 
@@ -71,11 +74,11 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
     }
   }, [text])
 
-  // The same for the first query word marked in an image's visible text, inside its own box.
+  // The same for an image's visible text, inside its own box.
   useEffect(() => {
-    if (visibleTextBox.current && firstVisibleTextMark.current) {
+    if (visibleTextBox.current && visibleTextTarget.current) {
       visibleTextBox.current.scrollTop =
-        firstVisibleTextMark.current.offsetTop - visibleTextBox.current.clientHeight / 2
+        visibleTextTarget.current.offsetTop - visibleTextBox.current.clientHeight / 2
     }
   }, [])
 
@@ -90,6 +93,18 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
   const title = metadata ? metadata.title : asset.filename
   // Opened from the file list there is no query, and HighlightedText then marks nothing.
   const queryText = query ?? ''
+
+  // The one place where the kinds of snippet differ: where the snippet's text shows in the dialog. The
+  // closest sentence of a result matched by meaning is marked there, in the passage of the file, in the
+  // description, in the visible text, or in the file name.
+  let sentence: SentenceRange | null = null
+  if (snippet && snippet.sentence_start !== null && snippet.sentence_end !== null) {
+    sentence = { start: snippet.sentence_start, end: snippet.sentence_end }
+  }
+  const passageSentence = snippet?.kind === 'content' ? sentence : null
+  const descriptionSentence = snippet?.kind === 'metadata' || snippet?.kind === 'image' ? sentence : null
+  const filenameSentence = snippet?.kind === 'filename' ? sentence : null
+  const visibleTextSentence = snippet?.kind === 'visible_text' ? sentence : null
 
   function renderText() {
     if (textError) {
@@ -117,29 +132,16 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
         <>
           <HighlightedText text={before} query={queryText} />
           <span ref={passageStart} />
-          <HighlightedText text={passage} query={queryText} firstMarkRef={firstTextMark} />
+          <ClosestSentenceText
+            text={passage}
+            query={queryText}
+            sentence={passageSentence}
+            sentenceRef={closestSentenceMark}
+            firstMarkRef={firstTextMark}
+          />
           <HighlightedText text={after} query={queryText} />
         </>
       )
-
-      // A passage matched by meaning is cut once more around its closest sentence, which is marked.
-      if (snippet.sentence_start_char !== null && snippet.sentence_end_char !== null) {
-        const passageBeforeSentence = characters.slice(snippet.start_char, snippet.sentence_start_char).join('')
-        const sentence = characters.slice(snippet.sentence_start_char, snippet.sentence_end_char).join('')
-        const passageAfterSentence = characters.slice(snippet.sentence_end_char, snippet.end_char).join('')
-        content = (
-          <>
-            <HighlightedText text={before} query={queryText} />
-            <span ref={passageStart} />
-            <HighlightedText text={passageBeforeSentence} query={queryText} />
-            <mark ref={closestSentenceMark} className={CLOSEST_SENTENCE_CLASS} title={CLOSEST_SENTENCE_TITLE}>
-              <HighlightedText text={sentence} query={queryText} />
-            </mark>
-            <HighlightedText text={passageAfterSentence} query={queryText} />
-            <HighlightedText text={after} query={queryText} />
-          </>
-        )
-      }
     }
 
     return (
@@ -170,7 +172,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
             {/* Without metadata the title already is the filename. */}
             {metadata && (
               <p className="truncate text-sm text-gray-500">
-                <HighlightedText text={asset.filename} query={queryText} />
+                <ClosestSentenceText text={asset.filename} query={queryText} sentence={filenameSentence} />
               </p>
             )}
           </div>
@@ -208,7 +210,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
           {metadata && (
             <>
               <Field label="Description" wide>
-                <HighlightedText text={metadata.description} query={queryText} />
+                <ClosestSentenceText text={metadata.description} query={queryText} sentence={descriptionSentence} />
               </Field>
               {metadata.tags.length > 0 && (
                 <Field label="Tags" wide>
@@ -227,10 +229,12 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
                     ref={visibleTextBox}
                     className="relative max-h-60 overflow-auto rounded-lg bg-gray-50 px-3 py-2 font-mono text-xs whitespace-pre-wrap ring-1 ring-gray-200"
                   >
-                    <HighlightedText
+                    <ClosestSentenceText
                       text={metadata.visible_text}
                       query={queryText}
-                      firstMarkRef={firstVisibleTextMark}
+                      sentence={visibleTextSentence}
+                      sentenceRef={visibleTextTarget}
+                      firstMarkRef={visibleTextTarget}
                     />
                   </div>
                 </Field>

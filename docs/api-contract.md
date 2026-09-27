@@ -290,7 +290,7 @@ Deletes database rows only; the files stay on disk (D13).
 | `order` | string | no, default `exact_first` | `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
 | `match` | string, repeatable | no, default all | Keep only results whose `match` is one of these: `exact`, `partial`, `semantic`. Repeated for several: `match=exact&match=partial` |
 | `asset_type` | string, repeatable | no, default all | Keep only `image` or `text` assets |
-| `found_in` | string, repeatable | no, default all | Keep only matches in these parts of an asset: `content`, `metadata`, `image`, `filename` (the values of `snippet.kind`). The snippet then comes from a chosen part |
+| `found_in` | string, repeatable | no, default all | Keep only matches in these parts of an asset: `content`, `metadata`, `image`, `visible_text`, `filename` (the values of `snippet.kind`). The snippet then comes from a chosen part |
 
 **Responses:**
 
@@ -315,12 +315,12 @@ type SearchResult = {
 };
 
 type Snippet = {
-  kind: "metadata" | "content" | "image" | "filename";   // which part of the asset matched best
+  kind: "metadata" | "content" | "image" | "visible_text" | "filename";   // which part of the asset matched best
   text: string;
   start_char: number | null;  // only for "content": where the text sits in the file
   end_char: number | null;
-  sentence_start_char: number | null;  // only for "content" matched "semantic": the closest sentence (D51)
-  sentence_end_char: number | null;
+  sentence_start: number | null;  // only when match is "semantic": the closest sentence, counted in text (D51)
+  sentence_end: number | null;
 };
 ```
 
@@ -330,7 +330,8 @@ type Snippet = {
 - `snippet.kind` says what matched best. `"content"`: a passage of a text file; `text` is that passage and
   `start_char`/`end_char` locate it in the file, so the detail view can highlight it. `"metadata"`: the
   AI description matched; `text` is the asset's description. `"image"`: the pixels matched; there is no
-  text for that, so `text` is also the asset's description.
+  text for that, so `text` is also the asset's description. `"visible_text"`: the text read from an image
+  matched; `text` is the asset's `visible_text` and there are no offsets.
   `"filename"`: the file's name matched (the full name or a word of it); `text` is the asset's `filename`
   and there are no offsets.
 - `match` says how the asset matched. `"exact"`: one part of it (a passage, the description, the file
@@ -338,10 +339,11 @@ type Snippet = {
   only the meaning search found it. An asset takes its strongest match, and its snippet comes from the
   part that shows it. A plain query finds keyword matches on any of its words; a query with quotes,
   `-word` or `or` needs every word, as written.
-- `sentence_start_char`/`sentence_end_char` are set only when `kind` is `"content"` and `match` is
-  `"semantic"`: they locate, in the file and inside `start_char`–`end_char`, the sentence of the passage
-  closest in meaning to the query, so the UI can show where the meaning is when no query word is there.
-  Otherwise they are `null`, also when the sentence could not be found; the search itself still succeeds.
+- `sentence_start`/`sentence_end` are set only when `match` is `"semantic"`, for every `kind`: they locate,
+  counted in characters of `text`, the sentence of `text` closest in meaning to the query (a passage, a
+  description, or the whole file name), so the UI can show where the meaning is when no query word is
+  there. For a passage, its place in the file is `start_char` plus these. Otherwise they are `null`,
+  also when the sentence could not be found; the search itself still succeeds.
 - Filters and order never change a result's `score`: it is measured against the best match of the
   whole query before filtering.
 - An asset appears at most once in a whole query, even across pages.
@@ -357,14 +359,14 @@ more". A page past the end gives `200` with `results: []` and `has_more: false`,
       "asset": { "id": "…", "filename": "notes-lisbon.txt", "asset_type": "text", "status": "ready", "…": "…" },
       "score": 1.0,
       "snippet": { "kind": "content", "text": "…her black hair tied back against the wind…", "start_char": 1204, "end_char": 1731,
-                   "sentence_start_char": null, "sentence_end_char": null },
+                   "sentence_start": null, "sentence_end": null },
       "match": "exact"
     },
     {
       "asset": { "id": "…", "filename": "portrait-02.jpg", "asset_type": "image", "status": "ready", "…": "…" },
       "score": 0.83,
       "snippet": { "kind": "image", "text": "A woman with dark hair smiling in a park.", "start_char": null, "end_char": null,
-                   "sentence_start_char": null, "sentence_end_char": null },
+                   "sentence_start": 0, "sentence_end": 41 },
       "match": "semantic"
     }
   ],
@@ -424,4 +426,5 @@ screen depends on it.
 | D34 | Backend response models and frontend types are both hand-written from this file | top |
 | D48 | A file is found by its name; `snippet.kind` `"filename"` says so | 6.8 |
 | D50 | Each result says how it matched (`match`); the user picks the order and filters by match, asset type and part | 6.8 |
-| D51 | A passage matched by meaning points at its closest sentence (`snippet.sentence_start_char`/`sentence_end_char`) | 6.8 |
+| D51 | A snippet matched by meaning points at its closest sentence (`snippet.sentence_start`/`sentence_end`, in `text`) | 6.8 |
+| D52 | The text read from an image is its own part: `snippet.kind` and `found_in` value `"visible_text"` | 6.8 |
