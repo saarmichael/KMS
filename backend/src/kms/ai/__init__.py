@@ -1,5 +1,5 @@
 """The process-wide vision and embedding adapters, chosen by AI_PROVIDER on first use
-(same pattern as blob.get_blob_store)."""
+(same pattern as blob.get_blob_store), and the search reranker."""
 
 import logging
 from pathlib import Path
@@ -10,7 +10,8 @@ from google.genai import types
 
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.gemini import GEMINI_REQUEST_TIMEOUT_SECONDS, GeminiVision
-from kms.ai.interfaces import Embedder, Vision
+from kms.ai.interfaces import Embedder, Reranker, Vision
+from kms.ai.noop import NoOpReranker
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
 from kms.ai.voyage import VOYAGE_REQUEST_TIMEOUT_SECONDS, VoyageEmbedder
 from kms.config import get_settings
@@ -91,6 +92,16 @@ def get_embedder() -> Embedder:
             _embedder = FakeEmbedder(settings.embedding_dims)
             logger.info("ai_adapters_selected provider=fake embedder=%s", _embedder.model)
     return _embedder
+
+
+def get_reranker() -> Reranker:
+    """Return the reranker that orders each page of search results.
+
+    Returns:
+        A NoOpReranker, so every page keeps the order fusion gave it. Reranking with a real
+        model is an option not built yet.
+    """
+    return NoOpReranker()
 
 
 def set_vision(vision: Vision | None) -> None:

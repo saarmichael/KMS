@@ -1,7 +1,7 @@
-"""What the worker needs from the AI vendors, independent of which vendor answers.
+"""What the worker and search need from the AI vendors, independent of which vendor answers.
 
-The fake adapters and the real ones implement the same two classes, so the worker never knows
-which ones it is talking to.
+The fake adapters and the real ones implement the same classes, so their callers never know
+which ones they are talking to.
 """
 
 from abc import ABC, abstractmethod
@@ -96,6 +96,25 @@ class Embedder(ABC):
 
         Returns:
             One vector per input, in the same order.
+
+        Raises:
+            Exception: A vendor error, raised as it comes.
+        """
+
+
+class Reranker(ABC):
+    """Reorders a short list of search results by reading the query and each result together."""
+
+    @abstractmethod
+    def rerank(self, query: str, documents: list[str]) -> list[int]:
+        """Order documents by how well each one answers the query.
+
+        Args:
+            query: The query as typed.
+            documents: One text per result, in the current order.
+
+        Returns:
+            The new order, as indices into `documents`, best first.
 
         Raises:
             Exception: A vendor error, raised as it comes.

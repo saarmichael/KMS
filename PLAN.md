@@ -785,7 +785,7 @@ only then writes code. The approved plan goes below the table as **Part N plan (
 | --- | --- | --- | --- | --- |
 | 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | plan approved, in progress |
 | 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | plan approved, in progress |
-| 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | not started |
+| 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | plan approved, in progress |
 | 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | not started |
 | 5 | Demo and redeploy | The phase's **Demo** above: seed a few text files and two images with the fake provider, curl ranks, snippets with offsets, normalised scores and paging; `make deploy`; tell the frontend track (Phase 7) that the real search API is live. An operational run, no new code | the Demo | not started |
 
@@ -882,6 +882,56 @@ the user can type `or`, quotes and `-word`).
   `test_equal_scores_are_ordered_by_unit_id`; `test_best_unit_wins_per_asset`;
   `test_asset_with_one_strong_unit_beats_asset_with_many_weak_units`;
   `test_top_asset_scores_one_and_the_rest_less`; `test_no_hits_give_no_assets`.
+
+**Part 3 plan (approved Sep 27).** Settled: the cache key is the embedding model and the query trimmed with
+whitespace collapsed, case kept; the reranker returns the new order as indices; an asset whose row is gone
+by the final fetch is skipped; a failed query embedding fails the request (no keyword-only fallback); the
+cache size is read once, when `search/service.py` is imported. The seam is kept though the no-op changes
+nothing: the design names reranking as a pluggable stage, and Phase 9 then adds one class and one flag.
+
+- *Reranker:* `ai/interfaces.py` gains `class Reranker(ABC)` with `rerank(query: str, documents: list[str])
+  -> list[int]`, the new order as indices into `documents` (Voyage's rerank shape); vendor errors
+  propagate. Alternative: `(index, score)` pairs; the no-op has no score and the API keeps the fused score.
+  New `ai/noop.py`: `NoOpReranker(Reranker)`, returns `list(range(len(documents)))` (alternative: in
+  `ai/fake.py`, but it is the production default, not a test double). `ai/__init__.py`: `get_reranker() ->
+  Reranker`, a new `NoOpReranker()` each call; `RERANK_ENABLED` unread until Phase 9; no setter.
+- *Types in new `search/service.py` (frozen dataclasses):* `MatchSnippet(kind: str, text: str, start_char:
+  int | None, end_char: int | None)`; `FoundAsset(asset: RowMapping, score: float, snippet: MatchSnippet)`,
+  the row goes to `Asset.from_row` in Part 4; `ResultPage(results: list[FoundAsset], has_more: bool)`.
+- *`normalise_query(query: str) -> str`:* strip, collapse whitespace runs to one space, keep case. Never
+  raises.
+- *`embed_query(model: str, query: str) -> tuple[float, ...]`:* `lru_cache(maxsize=QUERY_CACHE_SIZE)`;
+  `get_embedder().embed([query], "query")[0]`; `model` is an argument only to be part of the key. A tuple,
+  since the cache hands the same object to every caller. Vendor errors propagate and are not cached. Tests
+  that swap the embedder call `embed_query.cache_clear()`.
+- *`build_snippet(row: RowMapping) -> MatchSnippet`:* from one fetched row, by the best unit's kind:
+  `content` → the unit's body and offsets; `metadata`, `image` → the asset's description, no offsets;
+  `filename` → the asset's filename, no offsets; any other kind raises `ValueError`.
+- *`search(collection: str, query: str, page: int) -> ResultPage`, the only function Part 4 calls:*
+  normalise; a `ThreadPoolExecutor(max_workers=2)` per call runs `keyword_search` in one thread and
+  `embed_query` → `vector_search` (embedder's model, `UNITS_PER_PATH`) in the other; `group_by_asset(
+  fuse_units(...))`; first `MAX_ASSETS_PER_QUERY`; slice `[(page-1)*PAGE_SIZE : page*PAGE_SIZE]`,
+  `has_more` when assets follow the slice; one query fetches the page's assets joined to their best units
+  by unit id (asset columns plus `unit_kind`, `unit_body`, `unit_start_char`, `unit_end_char`); skips a
+  missing row; `get_reranker().rerank(query, [descriptions])` reorders the page, scores stay fused; logs
+  `search_done collection= units_keyword= units_vector= assets= ms=`. Trusts its caller (blank query,
+  `page < 1` are the API's 422). A page past the end → `ResultPage([], False)`. Database and vendor errors
+  propagate. Alternatives: one shared pool of 2 (concurrent searches would queue behind each other); a
+  second query for the units; the metadata unit's body for the reranker (another fetch; revisit in Phase 9).
+- *Two steps of `search` as their own functions (amended Sep 27, Michael's call):* `run_both_paths(collection:
+  str, query: str, model: str, limit: int) -> tuple[list[UnitHit], list[UnitHit]]`, the keyword path and
+  embed → vector path at the same time on the per-call pool of 2, keyword hits first; errors propagate.
+  `fetch_found_assets(page_matches: list[AssetMatch]) -> list[FoundAsset]`, the one query joining the
+  page's assets to their best units, snippets built, a missing row skipped, in `page_matches`' order; `[]`
+  for `[]`; database errors propagate. Paging and the rerank stay inline; each step of `search` opens with
+  a comment.
+- *Files:* new `ai/noop.py`, `search/service.py`, `tests/unit/test_search_service.py`; edits to
+  `ai/interfaces.py`, `ai/__init__.py`. No dependency, no setting.
+- *Tests (unit, no database):* `test_normalise_trims_and_collapses_whitespace`, `test_normalise_keeps_case`,
+  `test_embed_query_calls_embedder_once_for_repeated_query` (a counting stub embedder),
+  `test_embed_query_keys_on_model`, `test_snippet_content_has_chunk_text_and_offsets`,
+  `test_snippet_metadata_and_image_use_description`, `test_snippet_filename_uses_filename`,
+  `test_noop_reranker_keeps_order`. The service end to end is Part 4's integration tests.
 
 ---
 
