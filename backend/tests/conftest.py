@@ -19,6 +19,8 @@ os.environ["WORKER_ENABLED"] = "false"
 # Tests assert on the fake adapters' fixtures, and must never call a vendor because .env says
 # "real". The live tests switch to the real provider themselves.
 os.environ["AI_PROVIDER"] = "fake"
+# Tests call the API without a password; the auth tests set one themselves.
+os.environ["APP_PASSWORD"] = ""
 
 
 @pytest.fixture(scope="session")

@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     seed_on_start: bool = False
 
     # --- serving -------------------------------------------------------------
+    # The one password for the whole app (any username); empty leaves the app open.
+    app_password: str = ""
     static_dir: Path = Path(__file__).parent / "static"
 
     @field_validator("database_url", "test_database_url")

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from kms.api import assets, collections, health
+from kms.api.auth import require_password
 from kms.config import get_settings
 from kms.ingest.pool import WorkerPool
 from kms.logs import configure_logging
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title="KMS", version="0.1.0", lifespan=lifespan)
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
+    app.middleware("http")(require_password)
     app.include_router(health.router)
     app.include_router(assets.router)
     app.include_router(collections.router)

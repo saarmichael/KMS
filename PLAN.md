@@ -65,6 +65,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D46 | A naive chunker | Fixed windows of `CHUNK_SIZE_CHARS` (1,600) with `CHUNK_OVERLAP_CHARS` (240) overlap, each ending at its last space; sizes in characters, not tokens. The chunker shows the structure (content units with offsets); the recursive paragraph → sentence → word split is noted in the design as the next step. Michael's addition | decided (Sep 27) |
 | D47 | A failed attempt goes back to `pending` at once | The adapter's own backoff covers blips; the asset gets its next full pass right away, and after `MAX_ATTEMPTS` it is `failed`. An expired lease counts as an attempt: at the cap the reaper marks the asset `failed` instead of re-queueing it. Chosen for the simpler claim query over a delay of one lease length | decided (Sep 27) |
 | D48 | An asset is found by its file name | Every asset gets one `filename` search unit, keyword-indexed and embedded like the others: the full name, then its words split on anything that is not a letter or digit (`notes-lisbon.txt notes lisbon txt`), because Postgres keeps a bare file name as one token and "lisbon" would not find it. Original filename only, not aliases (they arrive after processing). No migration. Search needs no new path, only a `"filename"` snippet kind whose text is the filename (contract change); the UI labels it and marks the query words. Kept small on purpose: a misleading filename snippet in the vector tail is a known limitation, checked in Phase 6, not fixed now. Michael's addition | decided (Sep 27) |
+| D49 | One password in front of the deployed app | HTTP Basic Auth as middleware over every path except `/api/health`; one shared `APP_PASSWORD` (any username), compared in constant time; empty turns it off, so local dev and tests are open. The browser's own prompt, so the UI needs no change. Guards the vendor credit behind the public URL once live runs real providers; teardown is changing or emptying the password. Brought forward from Phase 8. Michael's addition | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -451,6 +452,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | done |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence; every fallback model checked; the recorder replays real answers | done |
 | 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; the recordings stay local, git-ignored (D26 as amended). An operational run, not new code | done |
+| 9 | A password on the app | `api/auth.py` middleware, `APP_PASSWORD` setting, contract rule (D49); added Sep 27 before live runs real providers | implemented, awaiting Michael's review |
 
 Open points, settled in the part named:
 
@@ -709,6 +711,28 @@ dependency or setting.
 - *Noted for Phase 6:* the `seed_dir` default `../seed` resolves from `backend/` to `KMS/seed`, not the folder
   beside the repo. A prompt change bumps `PROMPT_VERSION` and re-records the vision answers and the
   metadata-unit embeddings.
+
+**Part 9 plan (approved Sep 27).** Added when the live test with real providers came up: the public URL would
+spend the vendor credit for anyone who finds it. Option A of two; B (a login page with a signed session cookie)
+was set aside as several times the work for the same protection. Michael's addition (D49).
+
+- *Mechanism:* HTTP Basic Auth as HTTP middleware over the whole app, API and SPA, except `/api/health` (it shows
+  only migration state, and a deployment check needs no password). Any username; only the password is checked,
+  with `secrets.compare_digest`. The browser shows its own prompt on the `401` and resends the password on every
+  same-origin request, so the UI is unchanged.
+- *Off by default:* `app_password: str = ""`; empty lets every request through, so local dev and tests are open.
+  `tests/conftest.py` pins `APP_PASSWORD=""`, as it pins `AI_PROVIDER=fake`.
+- *Files:* new `api/auth.py`, `tests/integration/test_auth.py`; changed `main.py` (registers the middleware),
+  `config.py`, `.env.example`, `tests/conftest.py`, `docs/api-contract.md` (one Conventions row). No new dependency.
+- *Code:* `require_password(request, call_next) -> Response` (passes when the password is empty or the path is
+  open; otherwise `401`, `{"detail": "Password required"}`, `WWW-Authenticate: Basic`); `basic_auth_password(header:
+  str) -> str | None` (the password from a Basic header; `None` when missing, not Basic, or malformed);
+  `OPEN_PATHS = {"/api/health"}`.
+- *Tests:* `test_everything_is_open_when_no_password_is_set`, `test_request_without_password_gets_401_and_a_challenge`,
+  `test_wrong_password_gets_401`, `test_right_password_passes`, `test_health_is_open_with_a_password_set`.
+- *Teardown:* changing `APP_PASSWORD` on Railway redeploys the service and the old password stops working at once;
+  emptying it opens the app again. Behind it: `AI_PROVIDER=fake`, revoking the Railway-only vendor keys, and the
+  vendors' spend caps.
 
 ---
 

@@ -28,6 +28,7 @@ response. Types are written TypeScript-style because that is how the frontend wi
 | Times | ISO 8601 strings in UTC, e.g. `"2026-09-26T14:03:11Z"` | The browser's `new Date()` parses them |
 | Lists | Wrapped in an object: `{"assets": [...]}`, never a bare array | A field can be added next to the list later without breaking the UI |
 | Errors | Always `{"detail": string}` with a human-readable message (D33) | The UI shows `detail` as-is; see section 4 |
+| Password | When the server has `APP_PASSWORD` set, every path except `/api/health` needs it by HTTP Basic Auth (any username); without it: `401`, `{"detail": "Password required"}` and a `WWW-Authenticate: Basic` header (D49) | The browser asks once and resends it, so the UI needs no login screen |
 
 ## 3. Collections (D31)
 
@@ -52,6 +53,7 @@ Every error response has the same body:
 
 | Status | Meaning in this API |
 | --- | --- |
+| `401` | The server has a password set and the request did not carry it (see Conventions). The browser shows its own prompt |
 | `404` | The asset id does not exist |
 | `409` | The action does not fit the asset's current state (only: retry of an asset that is not `failed`) |
 | `413` | Upload larger than 10 MB |
