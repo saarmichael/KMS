@@ -64,6 +64,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D45 | Photo date and place to the vision model | EXIF date taken and GPS are read from the original bytes (`ingest/images.py`) and passed to `Vision.describe` as `PhotoDetails`; the Phase 4 prompt tells the model to use them only when they help, naming place and time in the description and tags. Date and GPS only; no new columns (a structured date-taken column is a later option). An image without them works as before. Michael's addition | decided (Sep 27) |
 | D46 | A naive chunker | Fixed windows of `CHUNK_SIZE_CHARS` (1,600) with `CHUNK_OVERLAP_CHARS` (240) overlap, each ending at its last space; sizes in characters, not tokens. The chunker shows the structure (content units with offsets); the recursive paragraph → sentence → word split is noted in the design as the next step. Michael's addition | decided (Sep 27) |
 | D47 | A failed attempt goes back to `pending` at once | The adapter's own backoff covers blips; the asset gets its next full pass right away, and after `MAX_ATTEMPTS` it is `failed`. An expired lease counts as an attempt: at the cap the reaper marks the asset `failed` instead of re-queueing it. Chosen for the simpler claim query over a delay of one lease length | decided (Sep 27) |
+| D48 | An asset is found by its file name | Every asset gets one `filename` search unit, keyword-indexed and embedded like the others: the full name, then its words split on anything that is not a letter or digit (`notes-lisbon.txt notes lisbon txt`), because Postgres keeps a bare file name as one token and "lisbon" would not find it. Original filename only, not aliases (they arrive after processing). No migration. Search needs no new path, only a `"filename"` snippet kind whose text is the filename (contract change); the UI labels it and marks the query words. Kept small on purpose: a misleading filename snippet in the vector tail is a known limitation, checked in Phase 6, not fixed now. Michael's addition | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -370,9 +371,12 @@ that must show its work. The adapter interfaces are designed here, against the w
    commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
 10. `ingest/chunker.py` (D41), built with the worker in step 6 (D44): fixed character windows ending at a space,
     configurable size and overlap, character offsets; unit test 1 (D46).
+11. The filename unit (D48), its own small part after the pool: `filename_body(filename) -> str` in
+    `ingest/worker.py` (full name, then its words), and `build_units` adds one `filename` unit after the
+    metadata unit. One unit test of `filename_body`; integration 5a checks the unit is written.
 
 **Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
-metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
+metadata plus image unit plus filename unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →
 `failed` with error; retry endpoint resets). Tests drive the worker with `run_once()` and set `started_at`
 directly in SQL for the lease case, so nothing depends on timing.
 
@@ -454,14 +458,16 @@ repeats. With the fake embedder every ranking claim is deterministic and testabl
    `QUERY_CACHE_SIZE`, keyed on model + normalised query; no separate cache module) and run keyword
    concurrently with it (thread pool of 2), fuse, group, no-op rerank, page `(offset, limit)` with cap 100,
    one final fetch of asset rows by id. Snippet: the metadata unit's text for images, the best chunk's
-   text for text files, with `start_char`/`end_char`.
+   text for text files, with `start_char`/`end_char`. When the best unit is the filename unit (D48):
+   kind `"filename"`, text the asset's filename, no offsets.
 6. `GET /api/search?collection=&q=&page=`.
 
 **Tests that pass here.** Unit 2 (RRF + grouping properties). Integration 5b (pending asset absent from
 search, present once `ready`). Integration 8 (both-path hit outranks single-path hits; collection scope
 holds; a text hit points at the right chunk offsets; page 2 has no repeats). Integration test of D42: in a
 collection with no picture- or document-related content, "picture" ranks the images first and "document"
-ranks the text files first.
+ranks the text files first. Integration test of D48: one word of a filename finds that asset, with a
+`"filename"` snippet.
 
 **Demo.** Seed a few hand-written text files and two images with the fake provider, then
 `curl "/api/search?collection=demo&q=..."` shows ranked assets, snippets with offsets, normalised scores
@@ -534,6 +540,9 @@ approved. Until the backend's Phase 5 passes, every call is answered by mock res
 5. Asset detail view: metadata fields, visible text, the file. "Open in a new tab" and "Download" for the file,
    both in the detail view and on each file tile (Michael, Sep 27).
 6. Empty states and the seed collection as the default selection.
+7. A filename match (D48): the `"filename"` snippet kind in the TS types, a label for it on the result card,
+   the filename as the snippet text with the query words marked, one mock result that shows it. The detail
+   view needs no change.
 
 **Tests that pass here.** None automated, by the test plan's choice. Manual checklist items 1, 2, 3, 4, 9
 run locally.
@@ -626,6 +635,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | 5b Absent while pending, present when ready | 5 |
 | 8 Hybrid search properties | 5 |
 | Found by kind: "picture" → images, "document" → text files (D42, not in plan) | 5 |
+| Found by file name: a filename word → that asset, `"filename"` snippet (D48, not in plan) | 5 |
 | 9 Live end to end | 6 |
 | Reranker / pg_trgm unit tests | 9 |
 
