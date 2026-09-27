@@ -182,6 +182,96 @@ interface, a flag, a stub, a column) where each one plugs in.
 Authentication and authorisation, redundancy, rate limiting, production-grade
 security, backups.
 
+## Future enhancements
+
+### Technology
+
+- **Structured fields, not only prose.** The model writes a title, a
+  description and tags. Fields such as people count, objects, colours and
+  dates mentioned would turn into exact filters.
+- **Two-pass enrichment.** A cheap model describes every file. A stronger model
+  takes a second look only when the first answer looks weak (little text, image
+  kind `other`, a document with almost no text read).
+- **Measured prompt changes.** Each prompt version is scored against the query
+  matrix (recall at 10), so a prompt change is a measured improvement, not a
+  guess.
+- **Contextual chunks.** The document's title and summary are added to each
+  chunk before embedding, so a chunk that says "the defendant" still knows which
+  case it comes from.
+- **Query understanding.** One cheap model call splits "photos of Messi in
+  Barcelona last season" into filters (person, place, dates) and free text.
+- **Learning from use.** Which result a user opens for a query tunes the
+  fusion, and later trains the reranker.
+- **Near-duplicate grouping.** Burst shots and re-saved scans have different
+  hashes. A perceptual hash folds them into one result.
+
+### Domain profiles
+
+Today every collection is treated the same: one prompt, one schema, one
+vocabulary. A client usually lives in a smaller world, such as a sports desk, a
+law firm, a product catalogue, an insurer or a construction company. Knowing
+that world improves every stage. A **domain profile** attached to a collection
+holds that knowledge:
+
+| Stage | What the profile adds |
+|---|---|
+| Describe | A domain paragraph in the prompt: what matters, which words to use |
+| Schema | Extra structured fields, filled by the model |
+| Known names | Lists the model picks from instead of guessing (roster, clients) |
+| Keyword search | Domain synonyms and abbreviations |
+| Rerank | Domain instructions for what a good result is |
+| UI | Filters built from the structured fields |
+
+Two examples:
+
+```yaml
+# Sports desk: mostly photos
+prompt: >
+  Photos from professional football matches. Identify players by jersey number
+  and team kit, and name the moment (goal, celebration, foul, substitution,
+  press conference).
+fields:
+  teams: list[str]
+  players: list[str]            # from the roster, by jersey number
+  moment: goal | celebration | foul | substitution | press_conference | other
+  venue: str
+known_names:
+  roster: rosters/2026.csv      # team, number, name
+  fixtures: fixtures/2026.csv   # the photo's date and place pick the match
+synonyms: {pk: penalty kick, brace: two goals, hat-trick: three goals}
+filters: [teams, players, moment]
+```
+
+```yaml
+# Law firm: mostly scanned documents
+prompt: >
+  Legal documents. Name the document type and the parties exactly as written,
+  and every date with what it refers to.
+fields:
+  document_type: contract | pleading | exhibit | correspondence | other
+  parties: list[str]
+  case_number: str | null
+  date_signed: date | null
+known_names:
+  clients: clients.csv
+synonyms: {nda: non-disclosure agreement, sow: statement of work}
+keyword_mode: strict            # exact phrases matter more than meaning
+filters: [document_type, parties, case_number]
+```
+
+**Why this fits the current design.** Each stage already has one place where a
+profile plugs in. The prompt is built by one function that already appends
+per-file context (the photo's date and place). The schema is a Pydantic model
+sent with every call, and our code already adds fixed tags on top of the
+model's answer. The prompt version is part of the recorded-response key, so a
+changed profile never replays an old answer. Filters already run over the fused
+list, and the reranker is an interface with a no-op default. What is missing is
+small: somewhere to keep the profile (collections exist implicitly today, so a
+`collections` table or one profile file per collection name) and a JSONB column
+for the extra fields. The keyword index is fixed to Postgres's English
+dictionary, so synonyms are simplest as query-time expansion. The engine stays
+the same; each client gets a profile, not a fork.
+
 ## Exploration notes
 
 - **Calibrated-decision models as the reranker.** TypeSafe's Jev
