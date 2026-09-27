@@ -42,7 +42,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D23 | Vision model fallback | `VISION_MODELS` is an ordered JSON list of Gemini model ids, older models only for price, default `["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]`. Every call starts at the first. Overloaded (503, or a 429 for that model's quota) → next model at once, no backoff; backoff only after the whole list answered overloaded. Any other error fails at once. The answering model is stored in the new `assets.vision_model` column (migration 0002, D11). No fallback for embeddings: vectors from two models are not comparable. Michael's addition | decided (Sep 25) |
 | D24 | Retries on vendor errors | SDK retries off on both clients; `ai/errors.py` uses tenacity. It honours Gemini's `RetryInfo.retryDelay` when present, else backs off ~1 s, 4 s, 16 s with jitter. Chosen after the spike showed neither SDK waits as long as the server asks | decided (Sep 26) |
 | D25 | Gemini thinking | Lowest thinking level on every describe call: the spike measured 554 thinking tokens against 140 answer tokens on a short note | decided (Sep 26) |
-| D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–4. The last step of Phase 4 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings are committed to git, so tests and demos on a fresh clone or on Railway replay them. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26; moved from Phase 3 to 4 by D27) |
+| D26 | Record the collection early | Michael designs `seed/demo/` during Phases 2–4. The last step of Phase 4 runs the real pipeline over it with recording on (D22): the DB is filled and every vendor response stored in one pass. Recordings stay local and git-ignored (amended Sep 27, Michael's call: they hold real model output about personal files); a fresh clone or Railway records again on first use. Recording waits for the worker because a replay only hits when the request is byte-identical (preprocessed image, chunks, metadata unit). Michael's addition | decided (Sep 26; moved from Phase 3 to 4 by D27) |
 | D27 | AI adapters get their own phase, after the worker | Phase 1 is the vendor spike only. The schema, the `Vision`/`Embedder` interfaces and the fakes move to Phase 3, where the worker is their first caller; the plumbing (upload, DB, worker) is built and demoed on hand-written fixture metadata. The real adapters, `ai/errors.py`, the record/replay layer, migration 0002, `kms describe`/`kms embed` and the D26 recording become Phase 4, built against a running worker. The former Phases 4–8 become 5–9. Michael's addition | decided (Sep 26) |
 | D28 | Two tracks in parallel | A backend track (Phases 2–6, 8, 9) and a frontend track (Phase 7) run in two Claude sessions at once. Both build against the API contract (D29); the frontend uses mock responses until the backend's Phase 5 passes. Each track has its own gates. Michael's addition | decided (Sep 26) |
 | D29 | API contract first | `docs/api-contract.md` fixes every endpoint's request and exact response JSON before Phase 2 or Phase 7 starts. Written in its own session and approved by Michael; a change to it needs his approval and lands on `main` | decided (Sep 26) |
@@ -420,7 +420,7 @@ is exercised by its real caller: upload a file and read Gemini's metadata back f
 5. CLI subcommands (D20): `uv run kms describe <file>` and `uv run kms embed <file>...` print the result
    with either provider. A debugging tool next to the worker, not the adapters' only caller.
 6. Record the collection (D26): with `AI_PROVIDER=real` and recording on, upload every file of
-   `seed/demo/` (as designed by Michael so far) and let the worker process it. Commit the recordings.
+   `seed/demo/` (as designed by Michael so far) and let the worker process it. The recordings stay local, git-ignored (D26 as amended).
    Until the collection exists, the spike's note and single screenshot are the only real files.
 
 **Tests that pass here.** Unit 4 (error classification), plus an adapter-level live check (skipped without
@@ -449,8 +449,8 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | done |
 | 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | implemented, awaiting Michael's review |
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | done |
-| 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
-| 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; commit the recordings (D26). An operational run, not new code | not planned |
+| 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence; every fallback model checked; the recorder replays real answers | done |
+| 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; the recordings stay local, git-ignored (D26 as amended). An operational run, not new code | not planned |
 
 Open points, settled in the part named:
 
@@ -458,8 +458,7 @@ Open points, settled in the part named:
   repair retry lives: inside `GeminiVision` (tested with a stubbed client) or as a wrapper around any
   `Vision` (then `FakeVision` gets the "invalid once" mode the test plan names).
 - Part 5: the `AI_CACHE_DIR` default. Settled: `./recordings` (`backend/recordings`).
-- Part 8: committing recordings (D26) puts real model output about the personal seed photos in git
-  (places from GPS, text read off documents), while D43 keeps the photos out. Michael's call before Part 8.
+- Part 8: committing recordings. Settled Sep 27: never committed; `recordings/` is git-ignored (D26 as amended).
 - Parts 7 and 8 need Gemini credit: the last spike call answered `402` on every model.
 
 **Part 1 plan (approved Sep 27).**
@@ -531,7 +530,8 @@ Open points, settled in the part named:
   `REQUEST_TIMEOUT_SECONDS = 120`. A timeout arrives as an `httpx` error: transient.
 - *Request:* `response_mime_type="application/json"`, `response_schema=Metadata`,
   `thinking_config=ThinkingConfig(thinking_level=MINIMAL)` (D25), `max_output_tokens=MAX_OUTPUT_TOKENS` (8,192,
-  constant; covers thinking and the JSON). Default temperature. An image is the prompt plus
+  constant; covers thinking and the JSON). Default temperature. Amended Sep 27 after the Part 7 live run: `automatic_function_calling`
+  disabled, since no tools are passed and the SDK warned on every call. An image is the prompt plus
   `Part.from_bytes(prepared JPEG, "image/jpeg")`; a text file is `TEXT_PROMPT` plus the summary text as its own
   part. The filename is never sent.
 - *Prompts (`ai/prompts.py`, one module):* the spike's prompts; tags "lowercase words or short phrases"; the image
@@ -604,8 +604,8 @@ are a development aid, not a production cache.
 - *Embed fingerprint:* model, dims, `input_type`, and each input's kind (`"text"` / `"image"`) with its sha256, in
   order. Every embed call is recorded, search queries included, so the query matrix replays after a restart.
 - *Files:* `AI_CACHE_DIR/vision/<hash>.json` holds `{"model": <the model that answered>, "metadata": {...}}`;
-  `AI_CACHE_DIR/embed/<hash>.json` holds `{"vectors": [...]}`. JSON files rather than a table: they are committed
-  (D26) and survive an emptied database.
+  `AI_CACHE_DIR/embed/<hash>.json` holds `{"vectors": [...]}`. JSON files rather than a table: they survive an emptied
+  database (not committed: D26 as amended).
 - *Left out on purpose:* atomic writes (two threads writing one file needs the same file uploaded twice at once;
   the only cost is a second vendor call); custom handling of a damaged file (the JSON or validation error is
   raised; delete the file to re-record); a copy of the request in the file.
@@ -656,6 +656,34 @@ are a development aid, not a production cache.
   integration tests cover the `process()` refactor.
 - *Demo:* `uv run kms describe <spike screenshot>` with fake, then real; a second real run shows `recording_hit`
   and no `vision_call`. `uv run kms embed <note> <screenshot>` prints 1,024-dim lines and the timing.
+
+
+**Part 7 plan (approved Sep 27).** Planned as if Part 6 were done. Two passes in one file: the first talks to
+the vendors, the second proves the recorder replays what the first recorded. Michael's addition.
+
+- *Adapters as the app builds them:* through `get_vision()` / `get_embedder()`, so the live run also checks the
+  client setup (timeouts, SDK retries off, `VISION_MODELS` from settings). Not constructors in the test.
+- *Recording on, into a fresh folder:* `recordings_dir` (one `tmp_path_factory` folder per run, never
+  `backend/recordings/`); `live_provider` sets `AI_PROVIDER=real` and `AI_CACHE_DIR=<recordings_dir>` and resets
+  the settings and adapter caches in and out. Every pass-1 call misses, so it is live; pass 2 expects hits at
+  once. `real_provider` stays in `tests/unit/conftest.py`.
+- *Skip:* every test marked `live`, `skipif` either key is missing; a key that is set but refused fails.
+- *Inputs:* `spike/samples/screenshot.png` through `prepare_image()` and `note.txt`; the spike's sentences
+  ("black hair" as `"query"`; the brunette and tax sentences as `"document"`); cosine computed in the test.
+- *Files:* new `tests/live/test_live_adapters.py`. No new log line, dependency, setting or Makefile change
+  (the existing `recording_hit kind= file=` proves a hit).
+- *Pass 1 (vendors):* `test_screenshot_is_described_with_visible_text`, `test_text_file_is_described`,
+  `test_every_vision_model_accepts_the_request` (parametrized over `VISION_MODELS`, `GeminiVision(client,
+  [model])` on the note, never recorded; closes Part 3's "not verified"),
+  `test_black_hair_is_closer_to_brunette_than_to_an_unrelated_sentence`,
+  `test_image_and_text_embed_to_the_configured_dimensions`. Helper `cosine(first, second) -> float`.
+- *Pass 2 (recorder), last in the file, relying on pass 1:*
+  `test_screenshot_description_is_replayed_from_its_recording` and
+  `test_embeddings_are_replayed_from_their_recording`: one `recording_hit` naming an existing file, no
+  `vision_call` / `voyage_embedded`, the answer equal to the file's contents. Run alone they fail by design.
+- *Cost per run:* 6 Gemini calls, 3 Voyage calls; pass 2 makes none.
+- *Demo:* `make test` unchanged; `make test-live` skips without keys; with keys all pass, the log shows the
+  vendor calls, then two `recording_hit` lines.
 
 ---
 

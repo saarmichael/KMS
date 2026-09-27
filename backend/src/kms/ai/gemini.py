@@ -182,6 +182,9 @@ class GeminiVision(Vision):
             response_schema=Metadata,
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
             max_output_tokens=MAX_OUTPUT_TOKENS,
+            # We pass no tools, so the SDK's automatic function calling has nothing to do; it is
+            # on by default and warns on every call unless switched off.
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
         started = time.perf_counter()
         response = self.client.models.generate_content(

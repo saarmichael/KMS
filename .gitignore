@@ -17,6 +17,9 @@ backend/kms/static/
 !.env.example
 # Blob folders, wherever BLOB_DIR points (backend/data locally).
 data/
+# Recorded vendor answers, wherever AI_CACHE_DIR points (backend/recordings locally). They
+# hold real model output about personal files, so they stay on the machine that made them.
+recordings/
 
 # OS / editors
 .DS_Store

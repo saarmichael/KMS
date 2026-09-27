@@ -1,7 +1,7 @@
 """Record and replay: every successful vendor answer is kept as a JSON file and reused.
 
 A request is turned into a fingerprint; the same request later reads the file instead of
-calling the vendor. The files are meant to be committed, so a fresh checkout or an emptied
+calling the vendor. The files stay on the machine that made them, so an emptied
 database replays the same answers without spending quota.
 """
 

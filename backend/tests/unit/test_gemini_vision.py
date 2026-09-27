@@ -172,6 +172,7 @@ def test_request_uses_schema_lowest_thinking_and_output_limit(sleeps):
     assert config.response_schema is Metadata
     assert config.thinking_config.thinking_level == types.ThinkingLevel.MINIMAL
     assert config.max_output_tokens == MAX_OUTPUT_TOKENS
+    assert config.automatic_function_calling.disable is True
 
 
 def test_text_file_is_sent_as_text_without_image(sleeps):
