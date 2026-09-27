@@ -784,7 +784,7 @@ only then writes code. The approved plan goes below the table as **Part N plan (
 | # | Part | Holds | Tests | Status |
 | --- | --- | --- | --- | --- |
 | 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | plan approved, in progress |
-| 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | not started |
+| 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | plan approved, in progress |
 | 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | not started |
 | 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | not started |
 | 5 | Demo and redeploy | The phase's **Demo** above: seed a few text files and two images with the fake provider, curl ranks, snippets with offsets, normalised scores and paging; `make deploy`; tell the frontend track (Phase 7) that the real search API is live. An operational run, no new code | the Demo | not started |
@@ -812,7 +812,7 @@ Open points, settled in the part named (a suggestion is not a decision until Mic
 - Part 1: `websearch_to_tsquery` vs `plainto_tsquery`. Suggested: `websearch` (quoted phrases, `-word`,
   never raises on odd input). A query of stop words only gives an empty tsquery: the keyword path returns
   nothing and the vector path still answers.
-- Part 2: RRF k. Suggested: 60 (the original paper's value and the common default).
+- Part 2: RRF k. Settled Sep 27: 60 (the original paper's value and the common default).
 - Part 3: how the query is normalised for the cache key. Suggested: trim and collapse whitespace, no
   lowercasing, so the text embedded is exactly what was typed. Tests that swap the embedder clear the cache.
 - Part 3: the reranker's signature. Suggested: `rerank(query: str, documents: list[str]) -> list[int]`,
@@ -852,6 +852,36 @@ the user can type `or`, quotes and `-word`).
   first; stays inside the collection; skips another `embedding_model`; ties break on unit id; returns at
   most `limit`; its index settings last only for the transaction. Not provable at test size: that the
   iterative scan refills a filtered result (the planner scans the small table without the index).
+
+**Part 2 plan (approved Sep 27).** Settled: RRF k = 60.
+
+- `search/fuse.py`, pure Python, no database, no setting: `RRF_K = 60` is a module constant (alternative: a
+  smaller k such as 10, which weights top ranks more). Imports `UnitHit` from `kms.search`.
+- *Rank from `hit.rank`:* Part 1 guarantees it is the place in the path, from 1 with no gaps, so a unit's
+  score is the sum of `1 / (RRF_K + hit.rank)` over the paths that found it; a path that missed it adds
+  nothing.
+- *An asset scores by its best unit, not the sum of its units:* summing would lift long text files with many
+  weak chunks over an image with one strong match.
+- *One sort decides every order:* units by score descending, then unit id ascending (the tie-break both
+  paths already use). Grouping walks that list and keeps each asset's first unit, so assets come out
+  ordered by their best unit with no second sort.
+- *Normalised score:* the asset's best-unit score over the top asset's; the top asset is exactly 1.0. No
+  division by zero: a non-empty list has a top score above 0. No cut here; Part 3 caps and pages.
+- *Types (frozen dataclasses):* `FusedUnit(unit_id: int, asset_id: UUID, score: float)`, one unit with its
+  raw RRF score. `AssetMatch(asset_id: UUID, unit_id: int, score: float)`, one asset, its best unit's id
+  (Part 3 reads the unit's kind and offsets for the snippet) and its normalised score.
+- *Functions:* `fuse_units(keyword_hits: list[UnitHit], vector_hits: list[UnitHit]) -> list[FusedUnit]`,
+  every unit found by either path once, best first, ties on unit id; `[]` when both are empty; never
+  raises. `group_by_asset(units: list[FusedUnit]) -> list[AssetMatch]`, the first (best) unit of each asset,
+  scores normalised to the first; expects `fuse_units`' order; `[]` for `[]`; never raises.
+- *Interface to Part 3:* `group_by_asset(fuse_units(keyword_hits, vector_hits))`, then cap and slice.
+- *Files:* new `search/fuse.py`, new `tests/unit/test_fuse.py`. No dependency, no setting.
+- *Tests (unit 2), hits built with explicit ranks:* `test_unit_score_is_the_sum_of_reciprocal_ranks`
+  (1st on keyword, 2nd on vector → `1/61 + 1/62`); `test_unit_on_both_paths_outranks_units_on_one_path`
+  (3rd on both beats 1st on either alone); `test_one_path_alone_keeps_its_order` (an empty vector list);
+  `test_equal_scores_are_ordered_by_unit_id`; `test_best_unit_wins_per_asset`;
+  `test_asset_with_one_strong_unit_beats_asset_with_many_weak_units`;
+  `test_top_asset_scores_one_and_the_rest_less`; `test_no_hits_give_no_assets`.
 
 ---
 
