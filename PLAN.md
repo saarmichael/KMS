@@ -447,7 +447,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | done |
 | 3 | `GeminiVision` and prompts | `ai/prompts.py` (image, text, repair, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | done |
 | 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | done |
-| 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | not planned |
+| 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | implemented, awaiting Michael's review |
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | not planned |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
 | 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; commit the recordings (D26). An operational run, not new code | not planned |
@@ -457,7 +457,7 @@ Open points, settled in the part named:
 - Part 3: the `visible_text` output token limit; whether the repair retry re-sends the image. Where the
   repair retry lives: inside `GeminiVision` (tested with a stubbed client) or as a wrapper around any
   `Vision` (then `FakeVision` gets the "invalid once" mode the test plan names).
-- Part 5: the `AI_CACHE_DIR` default.
+- Part 5: the `AI_CACHE_DIR` default. Settled: `./recordings` (`backend/recordings`).
 - Part 8: committing recordings (D26) puts real model output about the personal seed photos in git
   (places from GPS, text read off documents), while D43 keeps the photos out. Michael's call before Part 8.
 - Parts 7 and 8 need Gemini credit: the last spike call answered `402` on every model.
@@ -591,6 +591,40 @@ Open points, settled in the part named:
   `test_empty_input_makes_no_call`, `test_real_provider_builds_the_voyage_embedder`,
   `test_real_provider_without_a_key_raises`. Part 3's `test_real_provider_builds_gemini_vision` drops its
   "the embedder still raises" check.
+
+**Part 5 plan (approved Sep 27).** Planned as if Part 4 were done. Kept deliberately small: the recordings
+are a development aid, not a production cache.
+
+- *How it works:* a wrapper around each real adapter turns a fingerprint of the request into a file path. File
+  exists → its answer is returned; otherwise the real adapter is called, its answer written, and returned. Only
+  successful answers are written; an error passes through and the next attempt calls the vendor again.
+- *Vision fingerprint:* the first model in `VISION_MODELS` (changing the primary model re-records; editing the
+  fallbacks does not), `PROMPT_VERSION`, `asset_type`, the sha256 of the content, `photo_details`. Not the
+  filename: Gemini never sees it.
+- *Embed fingerprint:* model, dims, `input_type`, and each input's kind (`"text"` / `"image"`) with its sha256, in
+  order. Every embed call is recorded, search queries included, so the query matrix replays after a restart.
+- *Files:* `AI_CACHE_DIR/vision/<hash>.json` holds `{"model": <the model that answered>, "metadata": {...}}`;
+  `AI_CACHE_DIR/embed/<hash>.json` holds `{"vectors": [...]}`. JSON files rather than a table: they are committed
+  (D26) and survive an emptied database.
+- *Left out on purpose:* atomic writes (two threads writing one file needs the same file uploaded twice at once;
+  the only cost is a second vendor call); custom handling of a damaged file (the JSON or validation error is
+  raised; delete the file to re-record); a copy of the request in the file.
+- *Setting:* `ai_cache_dir: str = "./recordings"`; a string so that empty means off. Only the real adapters are
+  wrapped; the fakes never are.
+- *Files:* new `ai/recorded.py`, `tests/unit/test_recorded.py`; changed `ai/__init__.py` (wraps the real adapters
+  when the setting is non-empty), `config.py`, `.env.example`. No new dependency.
+- *Code:* `recording_path(cache_dir: Path, kind: str, request: dict) -> Path` (`cache_dir/kind/<sha256 of the
+  request as sorted JSON>.json`); `RecordedVision(Vision)` with `__init__(self, inner: GeminiVision, cache_dir:
+  Path)` and `describe(...) -> Description`; `RecordedEmbedder(Embedder)` with `__init__(self, inner:
+  VoyageEmbedder, cache_dir: Path)`, `model = inner.model`, and `embed(inputs, input_type) -> list[list[float]]`.
+  One log line, `recording_hit kind= file=`; a miss shows in the adapter's own call logs.
+- *Tests (stub `inner` that counts calls, `tmp_path`):* `test_vision_second_call_is_replayed` (one vendor call; the
+  replay keeps the answering model), `test_vision_ignores_the_filename`,
+  `test_vision_changed_request_is_not_replayed` (parametrized: model, prompt version, content, photo details),
+  `test_embed_second_call_is_replayed`, `test_embed_changed_input_type_is_not_replayed`,
+  `test_failed_call_is_not_recorded`, `test_real_provider_records_only_when_cache_dir_is_set`.
+- *Demo:* `AI_PROVIDER=real`: upload the screenshot → `ready`, two files in `backend/recordings/`. Empty the tables,
+  upload again → `ready`, same metadata, `recording_hit` twice, no `vision_call` in the log.
 
 ---
 

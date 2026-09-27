@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     embedding_dims: int = 1024
     rerank_enabled: bool = False
     rerank_model: str = "rerank-2.5"
+    # Where the real vendors' answers are recorded and replayed from; empty turns recording
+    # off. A string rather than a Path, so that empty can mean off.
+    ai_cache_dir: str = "./recordings"
 
     # --- ingest --------------------------------------------------------------
     worker_enabled: bool = True

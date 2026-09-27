@@ -2,6 +2,7 @@
 (same pattern as blob.get_blob_store)."""
 
 import logging
+from pathlib import Path
 
 import voyageai
 from google import genai
@@ -10,6 +11,7 @@ from google.genai import types
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.gemini import GEMINI_REQUEST_TIMEOUT_SECONDS, GeminiVision
 from kms.ai.interfaces import Embedder, Vision
+from kms.ai.recorded import RecordedEmbedder, RecordedVision
 from kms.ai.voyage import VOYAGE_REQUEST_TIMEOUT_SECONDS, VoyageEmbedder
 from kms.config import get_settings
 
@@ -23,7 +25,8 @@ def get_vision() -> Vision:
     """Return the shared vision adapter, building it from settings on first use.
 
     Returns:
-        FakeVision when AI_PROVIDER is "fake"; GeminiVision over VISION_MODELS when it is "real".
+        FakeVision when AI_PROVIDER is "fake"; GeminiVision over VISION_MODELS when it is "real",
+        wrapped in RecordedVision when AI_CACHE_DIR is set.
 
     Raises:
         ValueError: AI_PROVIDER is "real" and GEMINI_API_KEY is not set.
@@ -40,7 +43,11 @@ def get_vision() -> Vision:
                 api_key=settings.gemini_api_key,
                 http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_SECONDS * 1000),
             )
-            _vision = GeminiVision(client, settings.vision_models)
+            gemini_vision = GeminiVision(client, settings.vision_models)
+            if settings.ai_cache_dir:
+                _vision = RecordedVision(gemini_vision, Path(settings.ai_cache_dir))
+            else:
+                _vision = gemini_vision
             logger.info("ai_adapters_selected provider=real vision=%s", settings.vision_models)
         else:
             _vision = FakeVision()
@@ -53,7 +60,8 @@ def get_embedder() -> Embedder:
 
     Returns:
         FakeEmbedder with EMBEDDING_DIMS dimensions when AI_PROVIDER is "fake"; VoyageEmbedder
-        over EMBEDDING_MODEL with EMBEDDING_DIMS dimensions when it is "real".
+        over EMBEDDING_MODEL with EMBEDDING_DIMS dimensions when it is "real", wrapped in
+        RecordedEmbedder when AI_CACHE_DIR is set.
 
     Raises:
         ValueError: AI_PROVIDER is "real" and VOYAGE_API_KEY is not set.
@@ -71,7 +79,13 @@ def get_embedder() -> Embedder:
                 max_retries=0,
                 timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
             )
-            _embedder = VoyageEmbedder(client, settings.embedding_model, settings.embedding_dims)
+            voyage_embedder = VoyageEmbedder(
+                client, settings.embedding_model, settings.embedding_dims
+            )
+            if settings.ai_cache_dir:
+                _embedder = RecordedEmbedder(voyage_embedder, Path(settings.ai_cache_dir))
+            else:
+                _embedder = voyage_embedder
             logger.info("ai_adapters_selected provider=real embedder=%s", settings.embedding_model)
         else:
             _embedder = FakeEmbedder(settings.embedding_dims)
