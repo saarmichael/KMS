@@ -1,4 +1,4 @@
-# KMS — System design
+# Sift — System design
 
 Sep 24, 2026 · @Michael
 
@@ -6,18 +6,20 @@ The design as it stands, with every choice made. Each section's Choice / Value t
 
 ## Components
 
-Seven parts. A file goes in at the top left and comes out as a search result at the bottom.
+Seven parts. Each arrow says what one part asks of another.
 
 ```mermaid
 flowchart LR
-  UI[Web UI] --> API[API]
-  API --> Blob[Blob store<br/>the file bytes]
-  API --> DB[(Database<br/>rows + indexes)]
-  W[Worker] --> DB
-  W --> Blob
-  W --> AI[AI services<br/>vision, embeddings]
-  UI -- search --> API
-  API -- search --> DB
+  UI[Web UI] -- "upload, list, search" --> API[API]
+  API -- "insert pending row,<br/>run search queries" --> DB[(Database<br/>rows + indexes)]
+  API -- "save bytes" --> Blob[Blob store<br/>the file bytes]
+  API -- "embed the query" --> AI[AI services<br/>vision, embeddings]
+  DB ~~~ W[Worker]
+  Blob ~~~ W
+  AI ~~~ W
+  W -- "claim job,<br/>write results" --> DB
+  W -- "read bytes" --> Blob
+  W -- "describe, embed" --> AI
 ```
 
 | Part | Job | Technology |
@@ -62,6 +64,19 @@ Everything below this section is v1 unless it appears in one of these lists. Ite
 ## Upload
 
 The API saves the file and answers at once; the AI work happens later.
+
+```mermaid
+flowchart TD
+  U([User uploads a file]) --> A1[<b>API</b><br/>Detect type, compute sha256,<br/>save the bytes to the blob store]
+  A1 --> A2{<b>API</b><br/>Already<br/>uploaded?}
+  A2 -- yes --> A3([Reply 200: the existing asset])
+  A2 -- no --> A4[<b>API</b><br/>Insert row: pending<br/>reply 202 at once]
+  A4 -. "Postgres queue" .-> W1[<b>Worker</b><br/>Claim the row, prepare the bytes]
+  W1 --> D[<b>AI</b><br/>Describe the file]
+  D --> W2[<b>Worker</b><br/>Build search units]
+  W2 --> E[<b>AI</b><br/>Embed every unit]
+  E --> DB[(<b>Database</b><br/>Write it all, status: ready)]
+```
 
 1. `POST /api/assets` receives one file (text or image, up to 10 MB) and a collection name.
 2. Detect the type from the bytes, compute its sha256, write the bytes to the blob store.
@@ -198,14 +213,15 @@ Every query runs twice, by keyword and by meaning; the two rankings are merged a
 
 ```mermaid
 flowchart TD
-  Q[Query] --> K[Keyword path<br/>inverted index, within collection]
-  Q --> E[Embed the query<br/>LRU cache by model + text]
-  E --> V[Vector path<br/>nearest units, within collection]
-  K --> F[Merge rankings<br/>RRF]
+  Q([User searches]) --> E[<b>AI</b><br/>Embed the query<br/>skipped when the API has it cached]
+  Q --> K[<b>Database</b><br/>Keyword search<br/>full-text index, top 100 units]
+  E --> V[<b>Database</b><br/>Vector search<br/>nearest neighbours, top 100 units]
+  K --> F[<b>API</b><br/>Merge the two rankings<br/>reciprocal rank fusion]
   V --> F
-  F --> G[Group by asset<br/>best unit wins]
-  G --> RR[Rerank first page<br/>optional, off by default]
-  RR --> R[Assets + snippet + score]
+  F --> G[<b>API</b><br/>Group by asset, best unit wins]
+  G -. "optional, off by default" .-> RR[<b>AI</b><br/>Rerank the first page]
+  G --> R([Page of 20 assets<br/>snippet + score, show more])
+  RR -.-> R
 ```
 
 The keyword path finds exact words and IDs. The vector path finds meaning ("brunette" for "black hair"). A unit found by both outranks one found by either alone. Recall is preferred over precision: a missing file feels broken, an extra result costs a glance.

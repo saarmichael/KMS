@@ -1,8 +1,8 @@
-# KMS — Test plan
+# Sift — Test plan
 
 Sep 24, 2026 · Michael
 
-Companion to *KMS — System design*. The design says what the system is; this says how we know it works. Lives at `docs/TESTING.md` and is read by Claude Code alongside the design when producing the implementation plan.
+Companion to *Sift — System design*. The design says what the system is; this says how we know it works. Lives at `docs/TESTING.md` and is read by Claude Code alongside the design when producing the implementation plan.
 
 ## Audience and priorities
 

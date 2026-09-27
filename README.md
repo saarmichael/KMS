@@ -1,30 +1,83 @@
-# KMS — Knowledge Management System
+# Sift — Knowledge Management System
 
-A small system for collecting text files and images and finding them again by
-what they contain: literal words, described content, and — for images — what
-they look like.
+Sift lets you upload text files and images, then find them again by what
+they contain: the literal words, what the content is about, and — for images —
+what they look like. Every file is described by a vision model and embedded
+into one shared vector space, and search combines keyword and meaning matches
+into one ranked list.
 
-- **Live demo:** _TODO: Railway URL_
-- **System design:** [`docs/system-design.md`](docs/system-design.md) — every
-  design choice, the alternatives weighed, and what was deliberately left out.
-  This README summarises it; the doc is the source of truth.
+**Docs:** [System design](docs/system-design.md) (every design choice, the
+alternatives weighed, and what was deliberately left out — the source of
+truth this README summarises) · [Test plan](docs/TESTING.md) ·
+[API contract](docs/api-contract.md)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI[Web UI] -- "upload, list, search" --> API[API]
+  API -- "insert pending row,<br/>run search queries" --> DB[(Database<br/>rows + indexes)]
+  API -- "save bytes" --> Blob[Blob store<br/>the file bytes]
+  API -- "embed the query" --> AI[AI services<br/>vision, embeddings]
+  DB ~~~ W[Worker]
+  Blob ~~~ W
+  AI ~~~ W
+  W -- "claim job,<br/>write results" --> DB
+  W -- "read bytes" --> Blob
+  W -- "describe, embed" --> AI
+```
+
+The API saves an upload and answers at once. The worker, running in the same
+container, picks the file up from the Postgres queue, asks the AI services to
+describe and embed it, and writes the result in one transaction. A search is
+handled by the API alone: it embeds the query (or takes it from a cache), runs
+the keyword and vector searches in the database, and merges the results.
+
+### Upload pipeline
+
+```mermaid
+flowchart TD
+  U([User uploads a file]) --> A1[<b>API</b><br/>Detect type, compute sha256,<br/>save the bytes to the blob store]
+  A1 --> A2{<b>API</b><br/>Already<br/>uploaded?}
+  A2 -- yes --> A3([Reply 200: the existing asset])
+  A2 -- no --> A4[<b>API</b><br/>Insert row: pending<br/>reply 202 at once]
+  A4 -. "Postgres queue" .-> W1[<b>Worker</b><br/>Claim the row, prepare the bytes]
+  W1 --> D[<b>AI</b><br/>Describe the file]
+  D --> W2[<b>Worker</b><br/>Build search units]
+  W2 --> E[<b>AI</b><br/>Embed every unit]
+  E --> DB[(<b>Database</b><br/>Write it all, status: ready)]
+```
+
+### Search pipeline
+
+```mermaid
+flowchart TD
+  Q([User searches]) --> E[<b>AI</b><br/>Embed the query<br/>skipped when the API has it cached]
+  Q --> K[<b>Database</b><br/>Keyword search<br/>full-text index, top 100 units]
+  E --> V[<b>Database</b><br/>Vector search<br/>nearest neighbours, top 100 units]
+  K --> F[<b>API</b><br/>Merge the two rankings<br/>reciprocal rank fusion]
+  V --> F
+  F --> G[<b>API</b><br/>Group by asset, best unit wins]
+  G -. "optional, off by default" .-> RR[<b>AI</b><br/>Rerank the first page]
+  G --> R([Page of 20 assets<br/>snippet + score, show more])
+  RR -.-> R
+```
 
 ## What it does
 
-- Upload a text file or an image into a **collection**. The upload returns at
-  once; a background worker enriches the file (description, tags, visible
-  text, embeddings) and it becomes searchable the moment its own processing
+- **Upload** a text file or an image. The upload returns at once; a
+  background worker enriches the file (description, tags, visible text,
+  embeddings) and it becomes searchable the moment its own processing
   finishes, independent of any other upload.
 - **Search** runs two paths concurrently — keyword (Postgres full-text) and
   meaning (vector similarity) — and merges them with reciprocal rank fusion.
   Images are searchable through both their AI-written description and a
   vector computed directly from the pixels, so "black hair" and "brunette"
   both find the same photo, and "document" finds photos that contain one.
-- **Collections** keep datasets apart. The demo ships with a seeded collection
-  built to answer the assignment's example queries; create a new collection to
-  start from scratch.
+- The demo ships with a seeded set of files built to answer the assignment's
+  example queries.
 
-## How it works in one paragraph
+## How search works
 
 Every asset becomes one or more **search units**: a metadata unit (title,
 description, tags, visible text), one content unit per text chunk, and — for
@@ -51,8 +104,27 @@ match is never dropped.
 
 ## Running locally
 
-_TODO: `docker compose up`, env vars (`GEMINI_API_KEY`, `VOYAGE_API_KEY`,
-`DATABASE_URL`, `WORKER_THREADS`, `SEED_ON_START`), `make seed`._
+Needs Docker, [uv](https://docs.astral.sh/uv/) and Node.
+
+```sh
+cp backend/.env.example backend/.env   # every variable, with a comment
+cd frontend && npm install && cd ..
+make dev                               # Postgres, migrations, API on :8000, UI on :5173
+```
+
+By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
+and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
+`VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
+`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`.
+
+| Command | What it does |
+|---|---|
+| `make test` | Unit and integration tests, fake adapters, separate `kms_test` database |
+| `make test-live` | Adds the tests against the real vendors (needs both keys) |
+| `make lint` | ruff for the backend, oxlint for the frontend |
+| `make build` | Builds the SPA into the backend, then the container image |
+| `docker compose --profile full up --build` | Runs the production container locally |
+| `make seed` / `make matrix` | Ingests the demo files / runs the assignment's queries against them |
 
 ## Deliberately out of scope
 
@@ -67,12 +139,6 @@ interface, a flag, a stub, a column) where each one plugs in.
 - **Object storage for blobs.** The volume ties the system to one API
   instance. An S3-compatible `BlobStore` implementation is what allows
   horizontal scaling; the interface is already there.
-- **Per-collection isolation at scale.** Collections are a partition key on
-  shared tables — the standard multi-tenant pattern. At scale the next steps
-  are `PARTITION BY LIST (collection)` on `search_units` (its own HNSW and GIN
-  index per collection, partition pruning, detachable partitions) and, for
-  tenants whose size or sensitivity demands it, a dedicated deployment of the
-  same container with its own database.
 - **Managed Postgres and, beyond tens of millions of vectors, a dedicated
   vector store.** The Railway-provisioned Postgres has no point-in-time
   recovery or failover. The listener needs a direct connection, not a
@@ -112,71 +178,6 @@ interface, a flag, a stub, a column) where each one plugs in.
 
 Authentication and authorisation, redundancy, rate limiting, production-grade
 security, backups.
-
-## Design decisions in short
-
-Each line: what was chosen, and what it was chosen over. The rationale is in
-the design doc.
-
-**AI**
-1. Two vendors behind adapters — Google (vision) + Voyage (embeddings) — over
-   all-Google or self-hosted open weights.
-2. Gemini Flash for descriptions and summaries, over Claude Haiku 4.5 /
-   GPT-5.4 Mini (comparable) and Qwen3-VL (needs a GPU).
-3. voyage-multimodal-3.5 embeddings, over Cohere Embed v4, Gemini Embedding 2,
-   and Jina v5-omni / SigLIP 2.
-4. Images get both a described text unit and a native pixel-embedded unit in
-   one vector space, over describe-then-embed only or CLIP-only.
-5. Two prompts, one output schema, over one branching prompt.
-6. Text inside images is read by the vision model in the same call, over a
-   separate OCR step.
-7. Structured output → Pydantic validation → normalise → one repair retry →
-   failed, over regex extraction or storing partial fields.
-8. Chunks of ~400 tokens (max 512, ~60 overlap, recursive split),
-   configurable, over fixed windows or semantic chunking.
-9. Whole-file summary up to a token budget, else head only; map-reduce as a
-   stub.
-
-**Search**
-10. 100 units per path (`ef_search` ≥ that), over page-size-per-path.
-11. Fusion, grouping and reranking in Python; the two paths as concurrent SQL
-    queries — over a single-statement SQL merge.
-12. Pages of 20 with "show more", cap 100.
-13. No score cut; structural limits only — over a cosine threshold.
-14. Reranker off by default, pluggable — over always-rerank.
-15. No query-time typo correction or expansion in v1 — over LLM rewrites.
-
-**Storage**
-16. HNSW with cosine ops (m 16 / ef_construction 64 / ef_search 100), over
-    exact scan or IVFFlat.
-17. `embedding_model` recorded per vector; search filters on it.
-18. Alembic migrations at container start, over `create_all` or plain SQL
-    files.
-19. Collections as a partition key on shared tables, over a database per
-    collection.
-
-**Processing**
-20. Postgres as the queue (`FOR UPDATE SKIP LOCKED`, `LISTEN/NOTIFY` wake-up,
-    1 s poll fallback), over Celery/Redis or an in-process queue.
-21. Lease + reaper for crashed workers, over holding the row lock through the
-    job.
-22. Errors classified: transient → backoff with jitter; permanent → fail
-    fast; `attempts = 3` then `failed` with a retry button.
-23. Configurable thread pool (default 4); each asset independent.
-24. Idempotent uploads by content hash; other filenames kept as aliases and
-    shown in the UI — over allowing duplicates or returning 409.
-
-**Deployment**
-25. Railway, over Render, a VPS with compose, or Cloud Run/ECS.
-26. Platform Postgres with pgvector; the pgvector image in compose for dev.
-27. Railway volume behind `BlobStore`; S3-compatible store as the next step.
-28. Seeded collections ingested through the normal upload path (idempotent);
-    a new collection for a clean start.
-
-## AI tools used during development
-
-_TODO: which tools, for what (design brainstorming, code generation, review),
-and what was verified by hand._
 
 ## Exploration notes
 
