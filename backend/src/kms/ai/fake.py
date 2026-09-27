@@ -11,7 +11,7 @@ import re
 from typing import Literal
 
 from kms.ai.fake_fixtures import FIXTURES
-from kms.ai.interfaces import Description, Embedder, Vision
+from kms.ai.interfaces import Description, Embedder, PhotoDetails, Vision
 from kms.ai.schema import Metadata
 
 # A file whose name contains this word always gets an answer that fails validation, so the
@@ -22,9 +22,35 @@ BROKEN_ANSWER = '{"title": "Half an answer", "description": '
 
 
 class FakeVision(Vision):
+    """Answers from hand-written fixtures by filename, so no model is called.
+
+    Attributes:
+        model: "fake-vision", reported as the model that answered.
+    """
+
     model = "fake-vision"
 
-    def describe(self, content: bytes | str, asset_type: str, filename: str) -> Description:
+    def describe(
+        self,
+        content: bytes | str,
+        asset_type: str,
+        filename: str,
+        photo_details: PhotoDetails | None,
+    ) -> Description:
+        """Return the fixture for this filename, or generic metadata for an unknown one.
+
+        Args:
+            content: Ignored.
+            asset_type: "image" or "text"; shapes the generic answer.
+            filename: The fixture key.
+            photo_details: Ignored.
+
+        Returns:
+            The fixture or the generic metadata, with model "fake-vision".
+
+        Raises:
+            pydantic.ValidationError: The filename contains "invalid".
+        """
         if INVALID_MARKER in filename:
             # Parsing a broken answer raises the same error a bad real answer would.
             Metadata.model_validate_json(BROKEN_ANSWER)
@@ -46,18 +72,38 @@ class FakeVision(Vision):
 
 
 class FakeEmbedder(Embedder):
-    """Text: a hashed bag of words, so texts that share words point the same way.
-    Images: a vector drawn from the hash of the bytes, the same bytes always giving the same one.
+    """Deterministic vectors without a model.
+
+    Text becomes a hashed bag of words, so texts that share words point the same way. Images
+    get a vector drawn from the hash of their bytes, the same bytes always giving the same one.
+
+    Attributes:
+        model: "fake-embedder", stored with every vector like a real model id.
+        dims: The length of every vector.
     """
 
     model = "fake-embedder"
 
     def __init__(self, dims: int):
+        """Create an embedder.
+
+        Args:
+            dims: The length of every vector it returns.
+        """
         self.dims = dims
 
     def embed(
         self, inputs: list[str | bytes], input_type: Literal["document", "query"]
     ) -> list[list[float]]:
+        """Embed each input; never raises.
+
+        Args:
+            inputs: A str is split into words; bytes, and a str with no words, are hashed whole.
+            input_type: Ignored.
+
+        Returns:
+            One vector of length 1 per input, in the same order.
+        """
         vectors = []
         for item in inputs:
             if isinstance(item, bytes):

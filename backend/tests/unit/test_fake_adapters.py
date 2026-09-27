@@ -17,14 +17,14 @@ def cosine(first: list[float], second: list[float]) -> float:
 
 
 def test_fake_vision_returns_fixture_for_known_filename():
-    description = FakeVision().describe(b"any bytes", "image", "IMG_2101.jpg")
+    description = FakeVision().describe(b"any bytes", "image", "IMG_2101.jpg", None)
     assert description.metadata == FIXTURES["IMG_2101.jpg"]
     assert description.model == "fake-vision"
 
 
 @pytest.mark.parametrize(("asset_type", "image_type"), [("image", "other"), ("text", None)])
 def test_fake_vision_generic_metadata_for_unknown_file(asset_type, image_type):
-    metadata = FakeVision().describe("content", asset_type, "unknown_file.bin").metadata
+    metadata = FakeVision().describe("content", asset_type, "unknown_file.bin", None).metadata
     assert metadata.title == "unknown_file.bin"
     assert metadata.description
     assert metadata.image_type == image_type
@@ -32,7 +32,7 @@ def test_fake_vision_generic_metadata_for_unknown_file(asset_type, image_type):
 
 def test_fake_vision_invalid_marker_raises_validation_error():
     with pytest.raises(ValidationError):
-        FakeVision().describe("content", "text", "notes_invalid.txt")
+        FakeVision().describe("content", "text", "notes_invalid.txt", None)
 
 
 def test_fixtures_match_their_file_kind():

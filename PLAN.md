@@ -61,6 +61,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D42 | An asset is found by its kind | A query naming a kind of asset ("picture", "document") finds assets of that kind even when no content mentions it. Our code, not the model, adds fixed type tags to `assets.tags`, taken from `asset_type` and `image_type`: every image: `image`, `picture`; by `image_type`: photo → `photo`, `photograph`; screenshot → `screenshot`; document → `document`, `scan`; diagram → `diagram`, `drawing`; every text file: `text`, `text file`, `document`. Merged with the model's tags and deduped; visible in the API like any tag. Tested in Phase 5 (integration) and Phase 6 (two matrix rows). Michael's addition | decided (Sep 27) |
 | D43 | Where the seed collection lives | Outside the repo, at `../seed` (the `SEED_DIR` default), never committed: the photos are personal. How `kms seed` and the matrix read it is settled in Phase 6. The `FakeVision` fixtures that describe its files (filenames plus short hand-written metadata) are committed | decided (Sep 27) |
 | D44 | Chunker built with the worker | The chunker and unit test 1 move from the last step of Phase 3 into the worker part, so the worker builds real content units from the start instead of one placeholder chunk per file. Replaces D41's placement | decided (Sep 27) |
+| D45 | Photo date and place to the vision model | EXIF date taken and GPS are read from the original bytes (`ingest/images.py`) and passed to `Vision.describe` as `PhotoDetails`; the Phase 4 prompt tells the model to use them only when they help, naming place and time in the description and tags. Date and GPS only; no new columns (a structured date-taken column is a later option). An image without them works as before. Michael's addition | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -346,7 +347,8 @@ that must show its work. The adapter interfaces are designed here, against the w
    repair retry in Phase 4) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
    byte hash). Selected by `AI_PROVIDER`. The fixture dict holds hand-written metadata for the files the
    demo uploads, so the whole pipeline runs on static data until Phase 4.
-4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
+4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode; read date taken and GPS
+   from the original for the vision call (D45).
 5. `ingest/summary_source.py` (D16): strategy with `WholeFile` (live), `Head` (live fallback, token
    budget), `MapReduce` (stub raising `NotImplementedError` with the README note). Decides which text the
    vision model sees; the chunker decides the content units independently.
@@ -400,7 +402,7 @@ is exercised by its real caller: upload a file and read Gemini's metadata back f
 2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate →
    one repair retry → permanent error; lowest thinking level, D25; on an overloaded answer it moves to the
    next id in `VISION_MODELS` and reports which model answered, D23), `VoyageEmbedder` (batched,
-   `input_type` query/document). Adapters return validated metadata; the worker normalises it. Prompts live in `ai/prompts/`. `VISION_MODELS` replaces the single
+   `input_type` query/document). Adapters return validated metadata; the worker normalises it. Prompts live in `ai/prompts/`; the image prompt uses the photo's date and place when given (D45). `VISION_MODELS` replaces the single
    `VISION_MODEL` setting.
 3. Migration 0002 adds `assets.vision_model`; the worker writes the answering model with the metadata.
 4. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of

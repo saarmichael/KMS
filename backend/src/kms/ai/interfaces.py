@@ -17,28 +17,86 @@ class Description:
 
     The model comes back with every answer because a real vision call may fall back to another
     model when the first one is overloaded.
+
+    Attributes:
+        metadata: The answer, validated but not normalised.
+        model: The id of the model that answered.
     """
 
     metadata: Metadata
     model: str
 
 
-class Vision(ABC):
-    @abstractmethod
-    def describe(self, content: bytes | str, asset_type: str, filename: str) -> Description:
-        """Describe one file: prepared JPEG bytes for an image, the summary text for a text file.
+@dataclass(frozen=True)
+class PhotoDetails:
+    """When and where a photo was taken, read from its own metadata.
 
-        The metadata is validated but not normalised. An answer that does not match the schema
-        raises pydantic's ValidationError; a vendor error is raised as it comes.
+    Given to the vision model next to the image, so it can name the place and the time.
+
+    Attributes:
+        taken_at: Local date and time as "YYYY-MM-DD HH:MM", or None if the photo has none.
+        latitude: Decimal degrees, south negative, or None if the photo has no position.
+        longitude: Decimal degrees, west negative, or None if the photo has no position.
+    """
+
+    taken_at: str | None
+    latitude: float | None
+    longitude: float | None
+
+
+class Vision(ABC):
+    """Describes one file as search metadata."""
+
+    @abstractmethod
+    def describe(
+        self,
+        content: bytes | str,
+        asset_type: str,
+        filename: str,
+        photo_details: PhotoDetails | None,
+    ) -> Description:
+        """Describe one file.
+
+        Args:
+            content: The prepared JPEG bytes for an image, the summary text for a text file.
+            asset_type: "image" or "text".
+            filename: The file's name as uploaded. Real models are not shown it; they judge the
+                content, not the name.
+            photo_details: When and where the photo was taken; None for a text file and for an
+                image that carries neither.
+
+        Returns:
+            The metadata, validated but not normalised, and the model that wrote it.
+
+        Raises:
+            pydantic.ValidationError: The answer does not match the schema.
+            Exception: A vendor error, raised as it comes.
         """
 
 
 class Embedder(ABC):
-    # One embedder is always one model: vectors from two models cannot be compared.
+    """Turns text and images into vectors in one shared space.
+
+    Attributes:
+        model: The embedding model's id. One embedder is always one model, because vectors
+            from two models cannot be compared.
+    """
+
     model: str
 
     @abstractmethod
     def embed(
         self, inputs: list[str | bytes], input_type: Literal["document", "query"]
     ) -> list[list[float]]:
-        """One vector per input, in order: a str is embedded as text, bytes as an image."""
+        """Embed a batch of inputs in one call.
+
+        Args:
+            inputs: Each item is embedded as text if it is a str, as an image if it is bytes.
+            input_type: "document" for stored content, "query" for a search query.
+
+        Returns:
+            One vector per input, in the same order.
+
+        Raises:
+            Exception: A vendor error, raised as it comes.
+        """

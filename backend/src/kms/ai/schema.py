@@ -37,6 +37,13 @@ class Metadata(BaseModel):
 
     No length limits here on purpose: an over-long answer is truncated by `normalise`, which is
     cheaper than rejecting it and asking the model again.
+
+    Attributes:
+        title: A short name for the scene or the document.
+        description: Two to four sentences on what the image shows or the text says.
+        tags: Lowercase words and short phrases a search might use.
+        visible_text: Every readable word in an image, verbatim; empty for a text file.
+        image_type: The model's judgement of what kind of image it is; None for a text file.
     """
 
     title: str
@@ -47,7 +54,16 @@ class Metadata(BaseModel):
 
 
 def type_tags(asset_type: str, image_type: ImageType | None) -> list[str]:
-    """The fixed tags for this kind of file, taken from its type rather than from the model."""
+    """Return the fixed tags for this kind of file, taken from its type rather than the model.
+
+    Args:
+        asset_type: "image" or "text".
+        image_type: The image's kind, or None when unknown or for a text file.
+
+    Returns:
+        A new list: "image" and "picture" plus the tags for the image's kind, or "text",
+        "text file" and "document" for a text file.
+    """
     if asset_type == "text":
         return list(TEXT_TAGS)
     tags = list(IMAGE_TAGS)
@@ -57,7 +73,20 @@ def type_tags(asset_type: str, image_type: ImageType | None) -> list[str]:
 
 
 def normalise(metadata: Metadata, asset_type: str) -> Metadata:
-    """Return a cleaned copy: trimmed and truncated text, a consistent image type, tidy tags."""
+    """Return a cleaned copy: trimmed and truncated text, a consistent image type, tidy tags.
+
+    Tags are lowercased, their whitespace collapsed, empty and over-long ones dropped and
+    duplicates removed, keeping the first seen. The model's tags are capped, then the fixed type
+    tags are added on top of the cap.
+
+    Args:
+        metadata: The model's answer, already validated.
+        asset_type: "image" or "text".
+
+    Returns:
+        A new Metadata; the argument is not changed. For a text file `image_type` is None, for
+        an image without one it is "other".
+    """
     if asset_type == "text":
         image_type = None
     else:
