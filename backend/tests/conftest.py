@@ -1,6 +1,8 @@
 """Shared fixtures. Integration tests hit the compose Postgres, database `kms_test`,
 migrated to head once per session and truncated between tests."""
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -10,6 +12,10 @@ from kms.blob import set_blob_store
 from kms.blob.store import LocalBlobStore
 from kms.config import get_settings
 from kms.migrations import upgrade_head
+
+# Tests drive the worker themselves, so the app must not start its own pool. Set before any
+# test reads the settings, which are cached on first read; the environment wins over .env.
+os.environ["WORKER_ENABLED"] = "false"
 
 
 @pytest.fixture(scope="session")

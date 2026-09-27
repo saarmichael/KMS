@@ -357,12 +357,13 @@ that must show its work. The adapter interfaces are designed here, against the w
    vision model sees; the chunker decides the content units independently.
 6. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
    preprocess, describe via the summary source, build units, embed in one batch, commit metadata + units +
-   `ready` in one transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up →
+   `ready` in one transaction) and `run_once()`; the loop that repeats it is `WorkerPool._work_loop` in
+   `ingest/pool.py`; the outer retry loop (adapter gave up →
    back to `pending` at once; `attempts = 3` → `failed` with the message; an expired lease at the cap →
    `failed`). `reaper()` on startup and
    every minute.
-7. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
-   loop. Wake-up triggers a claim; the timeout is the poll guarantee.
+7. Listener (`ingest/pool.py`): dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s
+   timeout, reconnect loop. Wake-up triggers a claim; the timeout is the poll guarantee.
 8. Two ways to run the pool (D19): the app's startup hook starts `WORKER_THREADS` threads when
    `WORKER_ENABLED=true` (the default, and how the deployed container runs); `uv run kms worker` runs the
    same pool as its own process for the checklist and as the scale path. Tests and `make dev` with the

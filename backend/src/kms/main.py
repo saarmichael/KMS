@@ -1,6 +1,7 @@
 """App factory. The built SPA (if present) is served for every non-API path."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from kms.api import assets, collections, health
 from kms.config import get_settings
+from kms.ingest.pool import WorkerPool
 from kms.logs import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -36,10 +38,32 @@ def flatten_validation_error(
     return JSONResponse(status_code=422, content={"detail": "; ".join(messages)})
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run the worker pool for as long as the app serves, when `worker_enabled` is on.
+
+    Args:
+        app: The app being started; unused, but part of FastAPI's lifespan signature.
+
+    Yields:
+        Nothing; the app serves requests while this is suspended at `yield`.
+    """
+    settings = get_settings()
+    if not settings.worker_enabled:
+        yield
+        return
+    pool = WorkerPool(settings.worker_threads)
+    pool.start()
+    try:
+        yield
+    finally:
+        pool.stop()
+
+
 def create_app() -> FastAPI:
     """Build the app: the API routers, plus the built SPA when `static_dir` holds one."""
     configure_logging()
-    app = FastAPI(title="KMS", version="0.1.0")
+    app = FastAPI(title="KMS", version="0.1.0", lifespan=lifespan)
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
     app.include_router(health.router)
     app.include_router(assets.router)
