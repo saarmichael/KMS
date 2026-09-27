@@ -39,9 +39,7 @@ def vector_search(
     )
     # relaxed_order may hand rows back slightly out of order, so they are sorted again here;
     # the unit id breaks ties, so the same query always gives the same order.
-    ranked = select(nearest.c.id, nearest.c.asset_id).order_by(
-        nearest.c.distance, nearest.c.id
-    )
+    ranked = select(nearest.c.id, nearest.c.asset_id).order_by(nearest.c.distance, nearest.c.id)
 
     with get_engine().begin() as connection:
         # The last argument, true, makes each setting end with this transaction, so a pooled
