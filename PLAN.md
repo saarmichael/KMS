@@ -57,8 +57,10 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D38 | `NOTIFY` on retry | Retry sends `NOTIFY asset_pending` in its transaction, like upload | decided (Sep 26) |
 | D39 | Collection name validation | At the API only (query, form and path patterns); `upload()` trusts its caller | decided (Sep 26) |
 | D40 | Dedup mechanism | `INSERT … ON CONFLICT (collection, sha256) DO NOTHING RETURNING *`; no row back = duplicate. Replaces lookup + catch `IntegrityError`; design doc amended | decided (Sep 26) |
-| D41 | Chunker out of Phase 2 | Built at the end of Phase 3, its last step; its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
+| D41 | Chunker out of Phase 2 | Built in Phase 3 (placed with the worker by D44); its size units (chars or tokens) are decided in that step's plan. Michael's addition | decided (Sep 26; placed Sep 27) |
 | D42 | An asset is found by its kind | A query naming a kind of asset ("picture", "document") finds assets of that kind even when no content mentions it. Our code, not the model, adds fixed type tags to `assets.tags`, taken from `asset_type` and `image_type`: every image: `image`, `picture`; by `image_type`: photo → `photo`, `photograph`; screenshot → `screenshot`; document → `document`, `scan`; diagram → `diagram`, `drawing`; every text file: `text`, `text file`, `document`. Merged with the model's tags and deduped; visible in the API like any tag. Tested in Phase 5 (integration) and Phase 6 (two matrix rows). Michael's addition | decided (Sep 27) |
+| D43 | Where the seed collection lives | Outside the repo, at `../seed` (the `SEED_DIR` default), never committed: the photos are personal. How `kms seed` and the matrix read it is settled in Phase 6. The `FakeVision` fixtures that describe its files (filenames plus short hand-written metadata) are committed | decided (Sep 27) |
+| D44 | Chunker built with the worker | The chunker and unit test 1 move from the last step of Phase 3 into the worker part, so the worker builds real content units from the start instead of one placeholder chunk per file. Replaces D41's placement | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -360,7 +362,7 @@ that must show its work. The adapter interfaces are designed here, against the w
    worker off use the flag.
 9. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
    commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
-10. `ingest/chunker.py` (D41), the last step: recursive paragraph → sentence → word split, configurable
+10. `ingest/chunker.py` (D41), built with the worker in step 6 (D44): recursive paragraph → sentence → word split, configurable
     target/max/overlap, character offsets; unit test 1. Size units (chars or tokens) decided in its plan.
 
 **Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
@@ -606,7 +608,7 @@ Each is its own gate; each can be skipped without touching anything else.
 | Test (test plan) | Phase |
 | --- | --- |
 | Smoke: health through test client (not in plan) | 0 |
-| 1 Chunker | 3, last step (D41) |
+| 1 Chunker | 3, with the worker (D44) |
 | 6 Dedup + race | 2 |
 | Upload service function → pending + NOTIFY (not in plan) | 2 |
 | 3 Schema normalisation | 3 |
