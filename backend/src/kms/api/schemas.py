@@ -1,4 +1,5 @@
-"""Response bodies of the asset and collection endpoints, written by hand from the API contract.
+"""Response bodies of the asset, collection and search endpoints, written by hand from the API
+contract.
 
 The class names are the contract's type names, so the backend and the frontend use one name
 for each shape.
@@ -101,3 +102,29 @@ class CollectionList(BaseModel):
     """Every collection that holds at least one asset, sorted by name."""
 
     collections: list[Collection]
+
+
+class Snippet(BaseModel):
+    """Why a search result matched: the part of the asset that matched best."""
+
+    kind: Literal["metadata", "content", "image", "filename"]
+    text: str
+    start_char: int | None
+    end_char: int | None
+
+
+class SearchResult(BaseModel):
+    """One asset found by a search, with its score and why it matched."""
+
+    asset: Asset
+    score: float
+    snippet: Snippet
+
+
+class SearchResponse(BaseModel):
+    """One page of search results, best first."""
+
+    results: list[SearchResult]
+    page: int
+    page_size: int
+    has_more: bool

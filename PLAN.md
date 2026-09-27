@@ -786,7 +786,7 @@ only then writes code. The approved plan goes below the table as **Part N plan (
 | 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | plan approved, in progress |
 | 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | plan approved, in progress |
 | 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | plan approved, in progress |
-| 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | not started |
+| 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | plan approved, in progress |
 | 5 | Demo and redeploy | The phase's **Demo** above: seed a few text files and two images with the fake provider, curl ranks, snippets with offsets, normalised scores and paging; `make deploy`; tell the frontend track (Phase 7) that the real search API is live. An operational run, no new code | the Demo | not started |
 
 Facts already settled by the code, so no part re-decides them:
@@ -932,6 +932,40 @@ nothing: the design names reranking as a pluggable stage, and Phase 9 then adds 
   `test_embed_query_keys_on_model`, `test_snippet_content_has_chunk_text_and_offsets`,
   `test_snippet_metadata_and_image_use_description`, `test_snippet_filename_uses_filename`,
   `test_noop_reranker_keeps_order`. The service end to end is Part 4's integration tests.
+
+**Part 4 plan (approved Sep 27).** Settled: a blank `q` is rejected by one check in the handler; the handler
+is named `search_collection`, so it does not hide the service's `search`; `q` has no length cap (the
+contract sets none). Embed errors give `500` and the service logs `search_done`, both settled in Part 3.
+
+- *Blank `q`:* `q` is a required `str`; the handler raises `HTTPException(422, "q: must not be blank.")`
+  when `q.strip()` is empty, covering `""` and spaces only; the `"field: message"` form of the existing 422
+  handler. Alternative: `Query(pattern=r"\S")`, one mechanism but a message that shows the regex. A
+  missing `q` is FastAPI's own 422. The query goes to the service as typed; the service normalises it.
+- *Parameters:* `collection` is `Query(pattern=COLLECTION_NAME_PATTERN)` as in `list_assets`; `page` is
+  `Query(ge=1)`, default 1. `page_size` in the response is `get_settings().page_size`, the setting the
+  service pages by.
+- *Files:* new `api/search.py`: `router = APIRouter()`; `search_collection(collection: str, q: str, page:
+  int) -> SearchResponse` for `GET /api/search`: the blank check, `search(collection, q, page)`, each
+  `FoundAsset` mapped to a `SearchResult` (`Asset.from_row(found.asset)`, `found.score`, a `Snippet` from
+  `found.snippet`). Catches nothing; no log line (the service logs). `api/schemas.py` gains, exactly as
+  contract §6.8: `Snippet(kind: Literal["metadata", "content", "image", "filename"], text: str,
+  start_char: int | None, end_char: int | None)`, `SearchResult(asset: Asset, score: float, snippet:
+  Snippet)`, `SearchResponse(results: list[SearchResult], page: int, page_size: int, has_more: bool)`.
+  `main.py` includes `search.router`. No dependency, no setting, no contract change.
+- *Tests, new `tests/integration/test_search_api.py`:* a `StubEmbedder` (model `"stub-embedder"`, returns
+  the query vector a test picks) behind a fixture that calls `set_embedder` and `embed_query.cache_clear()`
+  on the way in and out; `insert_asset`, `insert_unit`, `axis_vector` as in `test_search_paths.py`.
+  `test_rejects_invalid_parameters` (bad collection name, missing, empty and spaces-only `q`, `page=0`:
+  422 with a string `detail`); `test_unknown_collection_gives_no_results`. 5b:
+  `test_pending_asset_is_absent_until_ready` (upload, not found; `run_once`, found). 8:
+  `test_asset_on_both_paths_outranks_assets_on_one_path`, `test_top_result_scores_one`,
+  `test_search_stays_inside_the_collection`, `test_text_hit_points_at_the_chunk_offsets`,
+  `test_page_two_continues_without_repeats` (`page_size + 5` assets), `test_results_stop_at_the_cap`
+  (`max_assets_per_query + 1` assets). D42: `test_picture_ranks_images_first_and_document_ranks_text_files_first`
+  (photos `IMG_2101.jpg`, `IMG_2114.jpg` with different bytes, two text files with no picture or document
+  words; photos because a document image also gets the `document` tag). D48:
+  `test_filename_word_finds_the_asset` (`2101` puts `IMG_2101.jpg` first with a `"filename"` snippet; a
+  fixture image, since an unknown text file's title is its filename and its metadata unit would match too).
 
 ---
 
