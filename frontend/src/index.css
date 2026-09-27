@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+/* The whole page a touch larger than the browser's 16px: text, spacing and widths all grow about 3%. */
+html {
+  font-size: 16.5px;
+}
+
+/* On top of that, every text size one small step up from Tailwind's defaults (0.75, 0.875, 1, 1.125,
+   1.25rem), so text grows more than the space around it. Line heights follow, being set as ratios. */
+@theme {
+  --text-xs: 0.8rem;
+  --text-sm: 0.925rem;
+  --text-base: 1.05rem;
+  --text-lg: 1.175rem;
+  --text-xl: 1.3rem;
+}
+
 /* A short bar sweeping from the left edge to the right, used while a search runs: `animate-sweep`. */
 @theme {
   --animate-sweep: sweep 1.2s ease-in-out infinite;

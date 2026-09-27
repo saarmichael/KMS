@@ -33,11 +33,36 @@ export async function search(
   }
 }
 
-export function uploadAsset(collection: string, file: File): Promise<UploadResponse> {
+// fetch cannot report how much of a request body has been sent, so the upload uses XMLHttpRequest, whose
+// `upload.onprogress` event can. `onProgress` gets the fraction sent so far, from 0 to 1.
+// Failures are the same ApiErrors as every other request.
+export function uploadAsset(
+  collection: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<UploadResponse> {
   const form = new FormData()
   form.append('file', file)
   form.append('collection', collection)
-  return request<UploadResponse>('/api/assets', { method: 'POST', body: form })
+
+  return new Promise((resolve, reject) => {
+    const httpRequest = new XMLHttpRequest()
+    httpRequest.open('POST', '/api/assets')
+    httpRequest.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) {
+        onProgress(event.loaded / event.total)
+      }
+    }
+    httpRequest.onload = () => {
+      if (httpRequest.status >= 200 && httpRequest.status < 300) {
+        resolve(JSON.parse(httpRequest.responseText) as UploadResponse)
+      } else {
+        reject(new ApiError(httpRequest.status, errorDetail(httpRequest.status, httpRequest.responseText)))
+      }
+    }
+    httpRequest.onerror = () => reject(new ApiError(0, 'Could not reach the server.'))
+    httpRequest.send(form)
+  })
 }
 
 export async function listAssets(collection: string): Promise<Asset[]> {
@@ -101,18 +126,21 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   if (response.ok) {
     return response
   }
+  const bodyText = await response.text()
+  throw new ApiError(response.status, errorDetail(response.status, bodyText))
+}
 
-  // Errors arrive as {"detail": string}, except a server crash, whose body may be anything.
-  let detail = `Something went wrong on the server (HTTP ${response.status}).`
+// Errors arrive as {"detail": string}, except a server crash, whose body may be anything.
+function errorDetail(status: number, bodyText: string): string {
   try {
-    const body = await response.json()
+    const body = JSON.parse(bodyText)
     if (typeof body.detail === 'string') {
-      detail = body.detail
+      return body.detail
     }
   } catch {
-    // Not JSON: keep the generic message.
+    // Not JSON: fall through to the generic message.
   }
-  throw new ApiError(response.status, detail)
+  return `Something went wrong on the server (HTTP ${status}).`
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

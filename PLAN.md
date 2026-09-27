@@ -1216,6 +1216,46 @@ pixel match is always searched and cannot be filtered out; the API keeps `found_
 Tested in the browser: "Israeli" with every chip on and with "Text in image" off; the Bamba card keeps "In the
 description".
 
+5. **Upload and search layout**: uploads leave the page flow, as in Google Drive; the search box is the
+   centre of the page, as on Google's home page. Frontend only, no contract change, on branch `ui-layout`.
+   One part, Michael's ideas (Sep 28).
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | Upload window, drop anywhere, upload panel; Retry all; centred search; larger text | implemented, in review |
+| 2 | Filters set before searching; an empty home page with "Browse all" | implemented, in review |
+
+**Item 5 plan (approved Sep 28).**
+- *Uploads in `App`:* state `uploads: UploadItem[]`, `uploadDialogOpen`, `filesVersion: number`, and
+  `handleFiles(files: File[])`: every file to the collection selected when it arrived, in parallel, each
+  updating its own item; when one ends, `filesVersion` + 1 and the collections reload. Kept in `App`, not
+  in `CollectionFiles`, so an upload survives a switch of collection. An **Upload** button in the top bar.
+- *`api/client.ts`:* `uploadAsset(collection, file, onProgress?)` on `XMLHttpRequest` (fetch cannot report
+  bytes sent), same `ApiError`s; `errorDetail(status, bodyText)` shared with `send()`.
+- *New components:* `UploadDialog({ open, collection, onFiles, onClose })`, the drop box in a `<dialog>`;
+  `PageDropZone({ collection, onFiles })`, `window` drag listeners and a full-page overlay, skipping a drop
+  the dialog's box took; `UploadPanel({ uploads, onClose })` with `UploadItem`, bottom-right, overall bar by
+  bytes, a row per file (bar, tick, duplicate note, refusal), foldable, closable once nothing uploads.
+  `UploadNotices.tsx` removed; `UploadArea` loses `uploadingCount`.
+- *`CollectionFiles`:* no upload code; `filesVersion` prop reloads the list; " · N failed" in the summary and
+  **Retry all failed (N)**, `handleRetryAll()` with `allSettled`, a red line naming how many could not be
+  retried.
+- *Search:* the logo leaves the top bar; on the home view a large logo and a large pill-shaped box are
+  centred with the button below; with results showing both shrink into one row (`SearchBar` `compact`).
+- *Text:* root font 16.5px (everything about 3% larger), and Tailwind's `text-xs`…`text-xl` one small step up.
+- *Tests:* none automated; UI checklist section 3 rewritten; checked in the browser on the mocks.
+
+**Item 5, Part 2 plan (approved Sep 28).** The filters (`SearchOptions`) move from `SearchResults` into
+`CollectionView`, under the search box on every view; set before a search they send nothing and are used by
+the next one, and they never touch the file list. The home page shows no files: a "Browse all ⌄" button under
+Search (Michael) opens the list under the filters, "Hide all" closes it (`browsing` state); "Back to all files"
+in the results opens it too. `CollectionFiles` stays mounted and hidden otherwise. `SearchResults` loses
+`onViewChange`; its reloading spinner is derived from a `shownView` state (the view of the cards on screen)
+instead of being set by the chip handler, and "Show more" waits while it differs.
+Amended Sep 28 (Michael): on the home page the filters are behind a "Filters" button with the adjustments
+(sliders) icon, beside "Browse all" (`filtersOpen` state, closed at first); with results showing they are
+always open and the button is not shown. New icon: `AdjustmentsIcon` (Heroicons adjustments-horizontal).
+
 Each is its own gate; each can be skipped without touching anything else.
 
 ---

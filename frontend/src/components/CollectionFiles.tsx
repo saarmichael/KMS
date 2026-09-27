@@ -1,37 +1,33 @@
-// The files of one collection: the upload area, what happened to the last upload, and one tile per
-// file. This component owns the file list and makes every request about it.
+// The files of one collection, one tile per file. This component owns the file list and makes every
+// request about it; uploads are sent by App, which bumps `filesVersion` whenever one ends.
 //
 // How data flows:
 //   listAssets(collection) -> `assets` state -> <AssetTile asset> for each file
-//     repeated every 2 s while any file is pending or processing
-//   <UploadArea onFiles> -> handleUpload() -> uploadAsset() per file, in parallel
-//     -> `notices` state -> <UploadNotices>   (refused files and duplicates)
-//     -> listAssets() again, and onCollectionChanged() so the collection counts reload
+//     again whenever `filesVersion` changes, and every 2 s while any file is pending or processing
 //   <AssetTile onRetry> -> handleRetry() -> retryAsset() -> the returned asset replaces the old one
+//   Retry all failed -> handleRetryAll() -> retryAsset() per failed file, in parallel
+//     -> the returned assets replace the old ones; `retryAllError` if any could not be retried
 //   <AssetTile onOpen> -> onOpen(asset), passed up to CollectionView, which shows the detail dialog
 import { useCallback, useEffect, useState } from 'react'
-import { ApiError, listAssets, retryAsset, uploadAsset } from '../api/client'
+import { ApiError, listAssets, retryAsset } from '../api/client'
 import type { Asset } from '../api/types'
 import AssetTile from './AssetTile'
-import { ExclamationIcon, FolderIcon } from './icons'
+import { ExclamationIcon, FolderIcon, RetryIcon } from './icons'
 import StatusMessage from './StatusMessage'
-import UploadArea from './UploadArea'
-import UploadNotices from './UploadNotices'
-import type { UploadNotice } from './UploadNotices'
 
 type CollectionFilesProps = {
   collection: string
-  onCollectionChanged: () => void
+  filesVersion: number
   onOpen: (asset: Asset) => void
 }
 
 const POLL_INTERVAL_MS = 2000
 
-export default function CollectionFiles({ collection, onCollectionChanged, onOpen }: CollectionFilesProps) {
+export default function CollectionFiles({ collection, filesVersion, onOpen }: CollectionFilesProps) {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [uploadingCount, setUploadingCount] = useState(0)
-  const [notices, setNotices] = useState<UploadNotice[]>([])
+  const [retryingAll, setRetryingAll] = useState(false)
+  const [retryAllError, setRetryAllError] = useState<string | null>(null)
 
   // ---- Talks to the API -------------------------------------------------------------------
 
@@ -49,10 +45,10 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
       })
   }, [collection])
 
-  // Loads the files once, when the collection is opened.
+  // Loads the files when the collection is opened, and again each time an upload ends.
   useEffect(() => {
     loadAssets()
-  }, [loadAssets])
+  }, [loadAssets, filesVersion])
 
   // While any file is still being processed, loads the list again every 2 s. The timer repeats on its
   // own, so a failed load does not stop it: the list recovers as soon as the server answers again.
@@ -66,39 +62,36 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
     return () => clearInterval(timer)
   }, [stillWorking, loadAssets])
 
-  // Every file is its own request. allSettled waits for all of them, so one refused file does not
-  // stop the others.
-  async function handleUpload(files: File[]) {
-    setUploadingCount(files.length)
-    setNotices([])
-    const outcomes = await Promise.allSettled(files.map((file) => uploadAsset(collection, file)))
-
-    const newNotices: UploadNotice[] = []
-    outcomes.forEach((outcome, index) => {
-      const filename = files[index].name
-      if (outcome.status === 'rejected') {
-        const detail = outcome.reason instanceof ApiError ? outcome.reason.detail : 'Upload failed.'
-        newNotices.push({ kind: 'error', text: `${filename}: ${detail}` })
-      } else if (outcome.value.deduplicated) {
-        const existing = outcome.value.asset.filename
-        const text =
-          existing === filename
-            ? `${filename} is already in this collection.`
-            : `${filename} is identical to ${existing}, which is already in this collection.`
-        newNotices.push({ kind: 'duplicate', text })
-      }
-    })
-
-    setNotices(newNotices)
-    setUploadingCount(0)
-    await loadAssets()
-    onCollectionChanged()
-  }
-
   // Errors are left to propagate so the tile can show them.
   async function handleRetry(id: string) {
     const updated = await retryAsset(id)
     setAssets((current) => (current ?? []).map((asset) => (asset.id === id ? updated : asset)))
+  }
+
+  // Every failed file is its own request. allSettled waits for all of them, so one refusal does not stop
+  // the others; the files that went back to pending are shown as such either way.
+  async function handleRetryAll() {
+    const failedAssets = (assets ?? []).filter((asset) => asset.status === 'failed')
+    setRetryingAll(true)
+    setRetryAllError(null)
+    const outcomes = await Promise.allSettled(failedAssets.map((asset) => retryAsset(asset.id)))
+
+    const updatedById = new Map<string, Asset>()
+    const reasons: string[] = []
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status === 'fulfilled') {
+        updatedById.set(failedAssets[index].id, outcome.value)
+      } else {
+        reasons.push(outcome.reason instanceof ApiError ? outcome.reason.detail : 'Something went wrong.')
+      }
+    })
+
+    setAssets((current) => (current ?? []).map((asset) => updatedById.get(asset.id) ?? asset))
+    if (reasons.length > 0) {
+      const files = reasons.length === 1 ? '1 file' : `${reasons.length} files`
+      setRetryAllError(`${files} could not be retried: ${reasons[0]}`)
+    }
+    setRetryingAll(false)
   }
 
   function handleTryAgain() {
@@ -137,7 +130,7 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
         <StatusMessage
           icon={<FolderIcon className="size-12" />}
           title="No files yet"
-          text="Drop files above to add the first ones."
+          text="Drop files anywhere on the page, or press Upload, to add the first ones."
         />
       )
     }
@@ -145,6 +138,7 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
     // The same words as the status badges, so the summary and the tiles agree.
     const pendingCount = assets.filter((asset) => asset.status === 'pending').length
     const processingCount = assets.filter((asset) => asset.status === 'processing').length
+    const failedCount = assets.filter((asset) => asset.status === 'failed').length
     return (
       <>
         {loadError && (
@@ -155,11 +149,33 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
             </button>
           </div>
         )}
-        <p className="text-sm text-gray-500">
-          {assets.length === 1 ? '1 file' : `${assets.length} files`}
-          {pendingCount > 0 && ` · ${pendingCount} pending`}
-          {processingCount > 0 && ` · ${processingCount} processing`}
-        </p>
+        <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-gray-500">
+            {assets.length === 1 ? '1 file' : `${assets.length} files`}
+            {pendingCount > 0 && ` · ${pendingCount} pending`}
+            {processingCount > 0 && ` · ${processingCount} processing`}
+            {failedCount > 0 && ` · ${failedCount} failed`}
+          </p>
+          {failedCount > 0 && (
+            <button
+              type="button"
+              onClick={handleRetryAll}
+              disabled={retryingAll}
+              className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RetryIcon className={`size-4 ${retryingAll ? 'animate-spin' : ''}`} />
+              {retryingAll ? 'Retrying…' : `Retry all failed (${failedCount})`}
+            </button>
+          )}
+        </div>
+        {retryAllError && (
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+            <span>{retryAllError}</span>
+            <button type="button" onClick={() => setRetryAllError(null)} className="font-semibold hover:text-red-600">
+              Dismiss
+            </button>
+          </div>
+        )}
         <ul className="space-y-3">
           {assets.map((asset) => (
             <AssetTile key={asset.id} asset={asset} onRetry={handleRetry} onOpen={onOpen} />
@@ -170,10 +186,6 @@ export default function CollectionFiles({ collection, onCollectionChanged, onOpe
   }
 
   return (
-    <div className="space-y-4">
-      <UploadArea onFiles={handleUpload} uploadingCount={uploadingCount} />
-      <UploadNotices notices={notices} onDismiss={() => setNotices([])} />
-      {renderFiles()}
-    </div>
+    <div className="space-y-4">{renderFiles()}</div>
   )
 }

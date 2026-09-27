@@ -2,14 +2,13 @@
 // onFiles, and the parent uploads them.
 import { useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
-import { SpinnerIcon, UploadIcon } from './icons'
+import { UploadIcon } from './icons'
 
 type UploadAreaProps = {
   onFiles: (files: File[]) => void
-  uploadingCount: number
 }
 
-export default function UploadArea({ onFiles, uploadingCount }: UploadAreaProps) {
+export default function UploadArea({ onFiles }: UploadAreaProps) {
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -25,6 +24,8 @@ export default function UploadArea({ onFiles, uploadingCount }: UploadAreaProps)
     setDragging(true)
   }
 
+  // preventDefault here also tells the page-wide drop zone that this box has taken the drop, so the
+  // files are not uploaded twice.
   function handleDrop(event: DragEvent) {
     event.preventDefault()
     setDragging(false)
@@ -37,26 +38,16 @@ export default function UploadArea({ onFiles, uploadingCount }: UploadAreaProps)
     event.target.value = ''
   }
 
-  if (uploadingCount > 0) {
-    const files = uploadingCount === 1 ? '1 file' : `${uploadingCount} files`
-    return (
-      <div className="flex items-center justify-center gap-3 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/50 px-6 py-8 text-sm font-medium text-indigo-700">
-        <SpinnerIcon className="size-5" />
-        Uploading {files}…
-      </div>
-    )
-  }
-
   return (
     <div
       onDragOver={handleDragOver}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
-      className={`flex flex-col items-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors ${
+      className={`flex flex-col items-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
         dragging ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300 bg-white'
       }`}
     >
-      <UploadIcon className={`size-8 ${dragging ? 'text-indigo-500' : 'text-gray-400'}`} />
+      <UploadIcon className={`size-10 ${dragging ? 'text-indigo-500' : 'text-gray-400'}`} />
       <p className="mt-3 text-sm text-gray-700">
         Drop files here, or{' '}
         <button

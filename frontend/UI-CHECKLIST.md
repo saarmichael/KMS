@@ -21,16 +21,34 @@ To stop and start the API in the middle, stop `make api` (or `make dev`) with Ct
 - [ ] Type a valid name and press Enter: it is selected, shows count 0, and "No files yet".
 - [ ] Reload before uploading anything: the empty collection is gone (it exists only after a first upload).
 
+## 2b. Home page and filters
+
+- [ ] The home page shows the logo, the search box, Search, "Filters" and "Browse all", and no files.
+- [ ] "Filters" (sliders icon) opens the filters under the box and closes them again. With results showing
+      they are always open and the button is gone; back on the home page they are as you left them.
+- [ ] Change the order and turn a match kind off before searching: no request is sent; the next search uses
+      them (check `order` and `match` in the network tab).
+- [ ] "Browse all" opens the file list under the filters, "Hide all" closes it; the filters never change it.
+- [ ] Change a filter while results show: they reload with a spinner, and "Show more" waits until they are back.
+- [ ] "Back to all files" in the results opens the file list.
+
 ## 3. Upload
 
-- [ ] Drop, or pick with **browse**, a JPEG, a PNG and a text file at once: all three appear at the top,
-      newest first, with a thumbnail or a text icon, and the count in the dropdown goes up.
+- [ ] **Upload** in the top bar opens a window with the drop box; drop, or pick with **browse**, a JPEG,
+      a PNG and a text file at once: the window closes, the upload panel opens in the bottom-right corner,
+      and all three appear at the top of the list, newest first, with a thumbnail or a text icon; the count
+      in the dropdown goes up.
+- [ ] Drag files from the desktop anywhere onto the page: an overlay says "Drop files to upload" and names
+      the collection; dropping uploads them without opening the window. It works during a search too.
+- [ ] Several files at once, one of them large: the panel's overall bar and each file's own bar fill as
+      the bytes go out, "N of M done" counts up, and each file ends with a tick.
+- [ ] The panel's × is greyed out while anything is uploading; the arrow folds the panel to its header.
+- [ ] Switch collection while a file is uploading: its row keeps going and names the collection it went to.
 - [ ] The summary above the list reads "N files · N pending" and matches the badges.
-- [ ] Upload the same image again under another name: a grey notice says it is identical to the
-      existing file, no new tile appears, and the tile shows "also uploaded as …".
-- [ ] Upload a GIF: red notice, unsupported type. An empty file: red notice, the file is empty.
-      A file over 10 MB: red notice, larger than the limit. None of them adds a tile.
-- [ ] The × on the notices closes them.
+- [ ] Upload the same image again under another name: its row says it is identical to the existing file,
+      no new tile appears, and the tile shows "also uploaded as …".
+- [ ] Upload a GIF: red row, unsupported type. An empty file: red row, the file is empty.
+      A file over 10 MB: red row, larger than the limit. None of them adds a tile.
 
 ## 4. Status updates
 

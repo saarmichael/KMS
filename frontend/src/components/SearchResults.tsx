@@ -6,16 +6,14 @@
 //     -> { results, page, has_more } -> `results` state (each page appended) and `hasMore`
 //     -> <SearchResultCard result query> for each result
 //   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
-//   <SearchOptions onChange> -> handleViewChange -> onViewChange, up to CollectionView's `view` state
-//     -> a new `view` prop -> a new loadPage -> the effect loads page 1 again; the cards shown stay
-//     until the new ones arrive
+//   the filters (in CollectionView) change the `view` prop -> a new loadPage -> the effect loads page 1
+//     again; the cards shown stay, with a spinner, until the new ones arrive
 //   Cancel (in the search box) removes this component; the effect cleanup aborts the running request
 //   <SearchResultCard onOpen> -> onOpen(asset, snippet, query), passed up to CollectionView's detail dialog
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, search } from '../api/client'
 import type { Asset, SearchResult, SearchView, Snippet } from '../api/types'
 import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
-import SearchOptions from './SearchOptions'
 import SearchResultCard from './SearchResultCard'
 import StatusMessage from './StatusMessage'
 
@@ -23,7 +21,6 @@ type SearchResultsProps = {
   collection: string
   query: string
   view: SearchView
-  onViewChange: (view: SearchView) => void
   onBack: () => void
   onFirstPageDone: () => void
   onOpen: (asset: Asset, snippet: Snippet, query: string) => void
@@ -35,7 +32,6 @@ export default function SearchResults({
   collection,
   query,
   view,
-  onViewChange,
   onBack,
   onFirstPageDone,
   onOpen,
@@ -44,8 +40,9 @@ export default function SearchResults({
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
-  // True from a change of view until its first page is back; the cards shown until then are the old ones.
-  const [reloading, setReloading] = useState(false)
+  // The view the results on screen were loaded with. While it differs from `view`, the filters have
+  // changed and page 1 is on its way; the cards shown until then are the old ones.
+  const [shownView, setShownView] = useState(view)
   const [error, setError] = useState<string | null>(null)
 
   // ---- Talks to the API -------------------------------------------------------------------
@@ -60,6 +57,8 @@ export default function SearchResults({
           // Page 1 replaces the list, so loading it twice never shows a result twice.
           if (pageNumber === 1) {
             setResults(response.results)
+            setShownView(view)
+            setError(null)
           } else {
             setResults((shown) => [...shown, ...response.results])
           }
@@ -73,10 +72,12 @@ export default function SearchResults({
           }
           setError(caught instanceof ApiError ? caught.detail : 'Something went wrong.')
           setLoading(false)
+          if (pageNumber === 1) {
+            setShownView(view)
+          }
         })
         .then(() => {
           if (pageNumber === 1 && !signal?.aborted) {
-            setReloading(false)
             onFirstPageDone()
           }
         })
@@ -98,13 +99,6 @@ export default function SearchResults({
     loadPage(page + 1)
   }
 
-  function handleViewChange(nextView: SearchView) {
-    setLoading(true)
-    setReloading(true)
-    setError(null)
-    onViewChange(nextView)
-  }
-
   function handleTryAgain() {
     setLoading(true)
     setError(null)
@@ -112,6 +106,8 @@ export default function SearchResults({
   }
 
   // ---- Display ------------------------------------------------------------------------------
+
+  const reloading = shownView !== view
 
   const backLink = (
     <button
@@ -165,12 +161,9 @@ export default function SearchResults({
     }
   }
 
-  const options = <SearchOptions view={view} onChange={handleViewChange} />
-
   if (results.length === 0) {
     return (
       <div className="space-y-3">
-        {options}
         <StatusMessage
           icon={reloading ? <SpinnerIcon className="size-8 text-indigo-600" /> : <SearchIcon className="size-12" />}
           title={`No matches for "${query}"`}
@@ -186,7 +179,6 @@ export default function SearchResults({
 
   return (
     <div className="space-y-3">
-      {options}
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-sm text-gray-500">
           <span>
@@ -209,7 +201,7 @@ export default function SearchResults({
           <button
             type="button"
             onClick={handleShowMore}
-            disabled={loading}
+            disabled={loading || reloading}
             className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
           >
             {loading && <SpinnerIcon className="size-4 text-indigo-600" />}

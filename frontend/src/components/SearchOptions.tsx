@@ -1,5 +1,6 @@
-// The controls above the search results: how to order them, and which of them to keep. Nothing here
-// talks to the API; a change goes up through onChange, and the results load again with the new view.
+// The search filters under the search box, always shown: how to order the results, and which of them to
+// keep. They can be set before a search. Nothing here talks to the API; a change goes up through onChange,
+// the next search uses it, and results already showing load again with the new view.
 import type { ReactNode } from 'react'
 import type { Asset, SearchOrder, SearchView, Snippet } from '../api/types'
 import { MATCH_COLOURS, MATCH_KINDS, MATCH_LABELS } from '../searchView'

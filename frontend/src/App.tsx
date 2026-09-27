@@ -1,23 +1,34 @@
-// The whole page: a top bar for choosing, creating and deleting collections, and the main area for
-// the selected collection. All collection state lives here and is passed down as props.
+// The whole page: a top bar for choosing, creating and deleting collections and for uploading, and the
+// main area for the selected collection. All collection and upload state lives here and is passed down
+// as props. Uploads live here, not with the file list, so they keep going (and stay in the upload panel)
+// when the user switches collection.
 //
 // How collection data flows:
 //   listCollections() -> `collections` state -> withDrafts() -> `allCollections`
 //     -> <CollectionDropdown collections>                 (names and counts in the picker)
 //     -> <DeleteCollectionDialog name assetCount>         (the selected one)
 //   Delete button -> dialog -> handleDelete() -> deleteCollection() -> refreshCollections()
-//   selected collection -> <CollectionView collection>   (search box, then its files or the search results)
-//     after an upload it calls onCollectionChanged = refreshCollections, so the counts reload
-import { useEffect, useState } from 'react'
-import { ApiError, deleteCollection, listCollections } from './api/client'
+//   selected collection -> <CollectionView collection filesVersion>   (search box, then its files or results)
+//
+// How an upload flows:
+//   Upload button -> <UploadDialog onFiles>, or files dropped anywhere -> <PageDropZone onFiles>
+//     -> handleFiles(files) -> uploadAsset() per file, in parallel -> `uploads` state -> <UploadPanel uploads>
+//     each file's progress and outcome update its own item as they arrive
+//     when a file ends: `filesVersion` + 1, so CollectionFiles reloads its list, and refreshCollections()
+import { useEffect, useRef, useState } from 'react'
+import { ApiError, deleteCollection, listCollections, uploadAsset } from './api/client'
 import type { Collection } from './api/types'
 import { defaultCollection, withDrafts } from './collections'
 import CollectionDropdown from './components/CollectionDropdown'
 import CollectionView from './components/CollectionView'
 import DeleteCollectionDialog from './components/DeleteCollectionDialog'
 import NewCollectionForm from './components/NewCollectionForm'
+import PageDropZone from './components/PageDropZone'
 import StatusMessage from './components/StatusMessage'
-import { ExclamationIcon, FolderIcon, PlusIcon, SpinnerIcon, StackIcon, TrashIcon } from './components/icons'
+import UploadDialog from './components/UploadDialog'
+import UploadPanel from './components/UploadPanel'
+import type { UploadItem } from './components/UploadPanel'
+import { ExclamationIcon, FolderIcon, PlusIcon, SpinnerIcon, TrashIcon, UploadIcon } from './components/icons'
 
 export default function App() {
   const [collections, setCollections] = useState<Collection[] | null>(null)
@@ -26,6 +37,12 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [uploads, setUploads] = useState<UploadItem[]>([])
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+  // Goes up by one each time an upload ends; the file list reloads when it changes.
+  const [filesVersion, setFilesVersion] = useState(0)
+  // A ref, not state: the next upload id is only read when files arrive, never shown.
+  const nextUploadId = useRef(1)
 
   // ---- Talks to the API -------------------------------------------------------------------
 
@@ -62,6 +79,49 @@ export default function App() {
   function handleTryAgain() {
     setLoadError(null)
     refreshCollections()
+  }
+
+  // Every file is its own request, to the collection selected when the files arrived, so switching
+  // collection mid-upload changes nothing. Each request updates only its own item in `uploads`.
+  function handleFiles(files: File[]) {
+    if (selected === null) {
+      return
+    }
+    const collection = selected
+    const newUploads: UploadItem[] = files.map((file) => {
+      const id = nextUploadId.current
+      nextUploadId.current += 1
+      return { id, file, collection, progress: 0, state: 'uploading', message: null }
+    })
+    setUploads((current) => [...current, ...newUploads])
+
+    for (const upload of newUploads) {
+      const updateThisUpload = (changes: Partial<UploadItem>) => {
+        setUploads((current) => current.map((item) => (item.id === upload.id ? { ...item, ...changes } : item)))
+      }
+      uploadAsset(collection, upload.file, (fraction) => updateThisUpload({ progress: fraction }))
+        .then((response) => {
+          if (response.deduplicated) {
+            const existing = response.asset.filename
+            const message =
+              existing === upload.file.name
+                ? 'Already in this collection.'
+                : `Identical to ${existing}, already in this collection.`
+            updateThisUpload({ state: 'duplicate', progress: 1, message })
+          } else {
+            updateThisUpload({ state: 'done', progress: 1 })
+          }
+        })
+        .catch((caught) => {
+          const message = caught instanceof ApiError ? caught.detail : 'Upload failed.'
+          updateThisUpload({ state: 'error', progress: 1, message })
+        })
+        .then(() => {
+          // A duplicate reloads too: the existing file now lists the new name among its aliases.
+          setFilesVersion((version) => version + 1)
+          refreshCollections()
+        })
+    }
   }
 
   // ---- Local only: no request ---------------------------------------------------------------
@@ -113,7 +173,7 @@ export default function App() {
       <CollectionView
         key={selectedCollection.name}
         collection={selectedCollection.name}
-        onCollectionChanged={refreshCollections}
+        filesVersion={filesVersion}
       />
     )
   }
@@ -121,14 +181,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <div className="mr-3 flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-600">
-              <StackIcon className="size-5 text-white" />
-            </div>
-            <span className="text-lg font-semibold text-gray-900">Sift</span>
-          </div>
-
+        <div className="mx-auto flex min-h-16 max-w-5xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           {collections !== null && (
             <>
               <CollectionDropdown collections={allCollections} selected={selected} onSelect={setSelected} />
@@ -142,6 +195,16 @@ export default function App() {
                 >
                   <PlusIcon className="size-4" />
                   New
+                </button>
+              )}
+              {selectedCollection && (
+                <button
+                  type="button"
+                  onClick={() => setUploadDialogOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+                >
+                  <UploadIcon className="size-4" />
+                  Upload
                 </button>
               )}
               {selectedCollection && (
@@ -170,6 +233,16 @@ export default function App() {
           onClose={() => setDeleting(false)}
         />
       )}
+      {selectedCollection && (
+        <UploadDialog
+          open={uploadDialogOpen}
+          collection={selectedCollection.name}
+          onFiles={handleFiles}
+          onClose={() => setUploadDialogOpen(false)}
+        />
+      )}
+      <PageDropZone collection={selectedCollection?.name ?? null} onFiles={handleFiles} />
+      <UploadPanel uploads={uploads} onClose={() => setUploads([])} />
     </div>
   )
 }
