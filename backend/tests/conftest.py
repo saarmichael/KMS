@@ -16,6 +16,9 @@ from kms.migrations import upgrade_head
 # Tests drive the worker themselves, so the app must not start its own pool. Set before any
 # test reads the settings, which are cached on first read; the environment wins over .env.
 os.environ["WORKER_ENABLED"] = "false"
+# Tests assert on the fake adapters' fixtures, and must never call a vendor because .env says
+# "real". The live tests switch to the real provider themselves.
+os.environ["AI_PROVIDER"] = "fake"
 
 
 @pytest.fixture(scope="session")

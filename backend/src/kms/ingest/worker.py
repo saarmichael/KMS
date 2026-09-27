@@ -253,6 +253,12 @@ def commit_ready(
     Returns:
         True when committed, False when the lease was lost.
     """
+    # The model answers "" for a text file, which has no pixels to read; stored as null, so a
+    # text file reads as "no visible text" rather than "an image with none".
+    if asset["asset_type"] == "text":
+        visible_text = None
+    else:
+        visible_text = metadata.visible_text
     mark_ready = (
         update(assets)
         .where(assets.c.id == asset["id"])
@@ -264,7 +270,7 @@ def commit_ready(
             title=metadata.title,
             description=metadata.description,
             tags=metadata.tags,
-            visible_text=metadata.visible_text,
+            visible_text=visible_text,
             image_type=metadata.image_type,
             vision_model=vision_model,
         )

@@ -447,10 +447,10 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | done |
 | 3 | `GeminiVision` and prompts | `ai/prompts.py` (image, text, repair, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | done |
 | 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | done |
-| 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | implemented, awaiting Michael's review |
+| 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | done |
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | done |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence; every fallback model checked; the recorder replays real answers | done |
-| 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; the recordings stay local, git-ignored (D26 as amended). An operational run, not new code | not planned |
+| 8 | Record the collection | Real pipeline over the seed with recording on; check in the UI; the recordings stay local, git-ignored (D26 as amended). An operational run, not new code | done |
 
 Open points, settled in the part named:
 
@@ -684,6 +684,31 @@ the vendors, the second proves the recorder replays what the first recorded. Mic
 - *Cost per run:* 6 Gemini calls, 3 Voyage calls; pass 2 makes none.
 - *Demo:* `make test` unchanged; `make test-live` skips without keys; with keys all pass, the log shows the
   vendor calls, then two `recording_hit` lines.
+
+**Part 8 plan (approved Sep 27).** Planned as if Part 7 were done. An operational run: no new file, function,
+dependency or setting.
+
+- *Fresh start:* every collection deleted (`DELETE /api/collections/{name}` for each in `GET /api/collections`),
+  which then answers `[]`; `backend/recordings/` absent or emptied. Blobs stay on disk (D13); dedup is by row.
+- *No filename shortcut in the real path (checked while planning):* with `AI_PROVIDER=real`, `get_vision()` never
+  builds `FakeVision`, so its filename-keyed fixtures are unreachable; `GeminiVision` sends only the prompt and
+  the prepared image or text, and uses the filename in a log label only; the recording key leaves it out. The
+  filename unit (D48) is embedded and indexed as a search unit, as designed; it produces no metadata. At run
+  time the log must show a `vision_call` for every asset and no `fake_vision_*` line.
+- *Recordings:* `AI_CACHE_DIR=./recordings`, git-ignored (D26 as amended); nothing is committed.
+- *Left out:* `innocents_abroad.txt` (not built yet; its size and recording are decided in Phase 6).
+- *Steps:* `.env` with `AI_PROVIDER=real`, both keys, `AI_CACHE_DIR=./recordings`; `make dev` (the UI against
+  the real API, no mocks), API log kept to a file. Create collection `demo` in the UI and upload the 31 files
+  of `../seed/demo` (21 images, 10 text files) through the upload area. All `ready`, each with a
+  `vision_model`; 31 files each in `recordings/vision/` and `recordings/embed/`. Michael reads titles, tags,
+  visible text (screenshot, receipt) and GPS/EXIF places and dates in the UI; quality notes go to Phase 6's
+  prompt tuning, not fixed now. Then delete `demo` and upload the same files again: 62 `recording_hit`, no
+  `vision_call` or `voyage_embedded`, the same metadata.
+- *Cost:* about 31 Gemini describe calls (more if repairs run) and 31 Voyage calls; the replay pass none.
+  Nothing deployed; the live URL stays on fake adapters until Phase 6.
+- *Noted for Phase 6:* the `seed_dir` default `../seed` resolves from `backend/` to `KMS/seed`, not the folder
+  beside the repo. A prompt change bumps `PROMPT_VERSION` and re-records the vision answers and the
+  metadata-unit embeddings.
 
 ---
 

@@ -95,6 +95,16 @@ def test_text_has_one_content_unit_per_chunk(db, blob_store):
     assert load_asset(db, asset_id)["tags"][-3:] == ["text", "text file", "document"]
 
 
+def test_text_file_has_null_visible_text(db, blob_store):
+    asset_id = upload("demo", "short_note.txt", b"A short note about the harbour.").asset["id"]
+
+    run_once()
+
+    asset = load_asset(db, asset_id)
+    assert asset["status"] == "ready"
+    assert asset["visible_text"] is None
+
+
 def test_run_once_returns_false_on_empty_queue(db, blob_store):
     assert run_once() is False
 
