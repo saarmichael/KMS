@@ -29,17 +29,19 @@ def axis_vector(*axes):
 
 
 class StubEmbedder(Embedder):
-    """Embeds every query as `vector`, which a test may change; along axis 0 unless it does."""
+    """Embeds every input as `vector`, which a test may change; along axis 0 unless it does. A
+    text in `vectors_by_text` gets its own vector instead."""
 
     model = STUB_MODEL
 
     def __init__(self):
         self.vector = axis_vector(0)
+        self.vectors_by_text: dict[str, list[float]] = {}
 
     def embed(
         self, inputs: list[str | bytes], input_type: Literal["document", "query"]
     ) -> list[list[float]]:
-        return [self.vector for _ in inputs]
+        return [self.vectors_by_text.get(item, self.vector) for item in inputs]
 
 
 @pytest.fixture
@@ -181,7 +183,10 @@ def test_asset_on_both_paths_outranks_assets_on_one_path(client, db, stub_embedd
     keyword_only = insert_asset(db, "demo")
     insert_unit(db, keyword_only, "demo", body="harbour")
     vector_only = insert_asset(db, "demo")
-    insert_unit(db, vector_only, "demo", body="mountain", embedding=axis_vector(0))
+    # A content unit always has its offsets, as the worker writes it.
+    insert_unit(
+        db, vector_only, "demo", body="mountain", embedding=axis_vector(0), start_char=0, end_char=8
+    )
     # Inserted last, so it loses every tie on unit id and wins only by being on both paths.
     both_paths = insert_asset(db, "demo")
     insert_unit(db, both_paths, "demo", body="harbour", embedding=axis_vector(0))
@@ -196,7 +201,10 @@ def test_top_result_scores_one(client, db, stub_embedder):
     near = insert_asset(db, "demo")
     insert_unit(db, near, "demo", body="harbour", embedding=axis_vector(0))
     far = insert_asset(db, "demo")
-    insert_unit(db, far, "demo", body="mountain", embedding=axis_vector(1))
+    # A content unit always has its offsets, as the worker writes it.
+    insert_unit(
+        db, far, "demo", body="mountain", embedding=axis_vector(1), start_char=0, end_char=8
+    )
 
     scores = [result["score"] for result in search(client, "harbour")["results"]]
 
@@ -233,6 +241,8 @@ def test_text_hit_points_at_the_chunk_offsets(client, db, stub_embedder):
         "text": "the harbour at dusk",
         "start_char": 120,
         "end_char": 139,
+        "sentence_start_char": None,
+        "sentence_end_char": None,
     }
 
 
@@ -313,6 +323,8 @@ def test_filename_word_finds_the_asset(client):
         "text": "IMG_2101.jpg",
         "start_char": None,
         "end_char": None,
+        "sentence_start_char": None,
+        "sentence_end_char": None,
     }
 
 
@@ -386,3 +398,49 @@ def test_found_in_takes_the_snippet_from_the_chosen_part(client, db, stub_embedd
 
     assert unfiltered == "metadata"
     assert content_only == "content"
+
+
+# --- closest sentence ----------------------------------------------------------
+
+
+def test_semantic_text_hit_points_at_closest_sentence(client, db, stub_embedder):
+    # No word of "pastry" is in the passage, so only the vector path finds it; its second
+    # sentence points the way the query does.
+    passage = "The tram climbs the hill. A small bakery sells custard tarts."
+    asset_id = insert_asset(db, "demo", "lisbon.txt")
+    insert_unit(
+        db,
+        asset_id,
+        "demo",
+        body=passage,
+        embedding=axis_vector(0),
+        start_char=500,
+        end_char=500 + len(passage),
+    )
+    stub_embedder.vectors_by_text = {"The tram climbs the hill.": axis_vector(1)}
+
+    result = search(client, "pastry")["results"][0]
+
+    assert result["match"] == "semantic"
+    # The second sentence starts 26 characters into the passage.
+    assert result["snippet"]["sentence_start_char"] == 526
+    assert result["snippet"]["sentence_end_char"] == 500 + len(passage)
+
+
+def test_exact_hit_has_no_sentence(client, db, stub_embedder):
+    asset_id = insert_asset(db, "demo", "lisbon.txt")
+    insert_unit(
+        db,
+        asset_id,
+        "demo",
+        body="The tram climbs the hill. A small bakery sells custard tarts.",
+        embedding=axis_vector(0),
+        start_char=0,
+        end_char=61,
+    )
+
+    result = search(client, "custard tarts")["results"][0]
+
+    assert result["match"] == "exact"
+    assert result["snippet"]["sentence_start_char"] is None
+    assert result["snippet"]["sentence_end_char"] is None

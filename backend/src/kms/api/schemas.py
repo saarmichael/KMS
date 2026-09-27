@@ -113,6 +113,8 @@ class Snippet(BaseModel):
     text: str
     start_char: int | None
     end_char: int | None
+    sentence_start_char: int | None
+    sentence_end_char: int | None
 
 
 class SearchResult(BaseModel):

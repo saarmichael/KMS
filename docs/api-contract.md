@@ -319,6 +319,8 @@ type Snippet = {
   text: string;
   start_char: number | null;  // only for "content": where the text sits in the file
   end_char: number | null;
+  sentence_start_char: number | null;  // only for "content" matched "semantic": the closest sentence (D51)
+  sentence_end_char: number | null;
 };
 ```
 
@@ -336,6 +338,10 @@ type Snippet = {
   only the meaning search found it. An asset takes its strongest match, and its snippet comes from the
   part that shows it. A plain query finds keyword matches on any of its words; a query with quotes,
   `-word` or `or` needs every word, as written.
+- `sentence_start_char`/`sentence_end_char` are set only when `kind` is `"content"` and `match` is
+  `"semantic"`: they locate, in the file and inside `start_char`–`end_char`, the sentence of the passage
+  closest in meaning to the query, so the UI can show where the meaning is when no query word is there.
+  Otherwise they are `null`, also when the sentence could not be found; the search itself still succeeds.
 - Filters and order never change a result's `score`: it is measured against the best match of the
   whole query before filtering.
 - An asset appears at most once in a whole query, even across pages.
@@ -350,12 +356,16 @@ more". A page past the end gives `200` with `results: []` and `has_more: false`,
     {
       "asset": { "id": "…", "filename": "notes-lisbon.txt", "asset_type": "text", "status": "ready", "…": "…" },
       "score": 1.0,
-      "snippet": { "kind": "content", "text": "…her black hair tied back against the wind…", "start_char": 1204, "end_char": 1731 }
+      "snippet": { "kind": "content", "text": "…her black hair tied back against the wind…", "start_char": 1204, "end_char": 1731,
+                   "sentence_start_char": null, "sentence_end_char": null },
+      "match": "exact"
     },
     {
       "asset": { "id": "…", "filename": "portrait-02.jpg", "asset_type": "image", "status": "ready", "…": "…" },
       "score": 0.83,
-      "snippet": { "kind": "image", "text": "A woman with dark hair smiling in a park.", "start_char": null, "end_char": null }
+      "snippet": { "kind": "image", "text": "A woman with dark hair smiling in a park.", "start_char": null, "end_char": null,
+                   "sentence_start_char": null, "sentence_end_char": null },
+      "match": "semantic"
     }
   ],
   "page": 1,
@@ -414,3 +424,4 @@ screen depends on it.
 | D34 | Backend response models and frontend types are both hand-written from this file | top |
 | D48 | A file is found by its name; `snippet.kind` `"filename"` says so | 6.8 |
 | D50 | Each result says how it matched (`match`); the user picks the order and filters by match, asset type and part | 6.8 |
+| D51 | A passage matched by meaning points at its closest sentence (`snippet.sentence_start_char`/`sentence_end_char`) | 6.8 |

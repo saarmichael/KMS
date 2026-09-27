@@ -63,6 +63,8 @@ def search_collection(
             text=found.snippet.text,
             start_char=found.snippet.start_char,
             end_char=found.snippet.end_char,
+            sentence_start_char=found.snippet.sentence_start_char,
+            sentence_end_char=found.snippet.sentence_end_char,
         )
         results.append(
             SearchResult(
