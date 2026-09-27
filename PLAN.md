@@ -783,7 +783,7 @@ only then writes code. The approved plan goes below the table as **Part N plan (
 
 | # | Part | Holds | Tests | Status |
 | --- | --- | --- | --- | --- |
-| 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | not started |
+| 1 | The two search paths | `search/keyword.py`: full-text match on `tsv`, ranked by `ts_rank`, within the collection, top `UNITS_PER_PATH`. `search/vector.py`: cosine distance `<=>` to the query vector, `hnsw.ef_search` = `HNSW_EF_SEARCH` and `hnsw.iterative_scan = relaxed_order` set for the transaction only, filtered on collection and `embedding_model`, top `UNITS_PER_PATH`. Both return ranked unit hits `(unit_id, asset_id, rank)` in one shared shape, best first, with a fixed tie-break so the same query always gives the same order | Integration: each path ranks the matching unit first, stays inside the collection; the vector path skips units of another `embedding_model` | plan approved, in progress |
 | 2 | Fusion and grouping | `search/fuse.py`, pure Python, no database: RRF over the two hit lists (score per unit = sum of `1 / (k + rank)` over the paths that found it), group by asset with the best unit winning (keeps its unit id, so the service can read its kind and offsets), normalised score = asset's best RRF / top RRF. Deterministic order on ties | Unit test 2: a unit on both paths outranks one on either alone; best unit wins per asset; top asset scores 1.0 | not started |
 | 3 | Reranker interface and the search service | `Reranker` interface in `ai/interfaces.py`, a no-op implementation, `get_reranker()` in `ai/__init__.py` (always the no-op; `RERANK_ENABLED` stays unread until Phase 9, D16). `search/service.py`: the query-embedding cache (`functools.lru_cache`, `QUERY_CACHE_SIZE`, keyed on embedding model + normalised query), keyword path run at the same time as embed → vector path (thread pool of 2, one connection each), fuse, cap at `MAX_ASSETS_PER_QUERY`, slice the page, one fetch of the asset rows by id, snippets as in step 5 above, no-op rerank of the page | Unit: cache key normalisation; snippet per unit kind | not started |
 | 4 | The endpoint | `api/search.py` with `GET /api/search?collection=&q=&page=`; `SearchResponse`, `SearchResult`, `Snippet` in `api/schemas.py` exactly as contract §6.8; router added in `main.py`. `422` for a bad collection name, an empty or blank `q`, `page` below 1; unknown collection or no match → `results: []`; a page past the end → `results: []`, `has_more: false` | Integration 5b, integration 8, the D42 test ("picture" ranks images first, "document" text files first), the D48 test (one word of a filename finds the asset, `"filename"` snippet) | not started |
@@ -823,6 +823,35 @@ Open points, settled in the part named (a suggestion is not a decision until Mic
   give (a shared word is also a close vector). Suggested: the test writes assets and units straight into
   the database with hand-picked vectors, and a stub embedder returns a chosen query vector. The D42 and
   D48 tests go through `upload` and the worker, as a real asset would.
+
+**Part 1 plan (approved Sep 27).** Settled: `websearch_to_tsquery`; words are ANDed (websearch's default;
+the user can type `or`, quotes and `-word`).
+
+- `search/__init__.py`: `UnitHit(unit_id: int, asset_id: UUID, rank: int)`, a frozen dataclass; rank
+  from 1, no gaps, the unit's place in its own path. Part 2's input is two `list[UnitHit]`, best first.
+  (Alternatives: a plain tuple; carrying the raw score, which Part 2 does not use.)
+- `search/keyword.py`: `keyword_search(collection: str, query: str, limit: int) -> list[UnitHit]`. The
+  units of the collection matching `websearch_to_tsquery('english', query)` on `tsv`, ordered by
+  `ts_rank` (default normalisation, no length adjustment; alternative: normalisation 1, which favours
+  short units) descending, then unit id ascending, top `limit`. `[]` for no match, stop words only or an
+  unknown collection; never raises on typed text; database errors propagate.
+- `search/vector.py`: `vector_search(collection: str, query_vector: list[float], embedding_model: str,
+  limit: int) -> list[UnitHit]`. One transaction: `set_config('hnsw.ef_search', HNSW_EF_SEARCH, true)`
+  and `set_config('hnsw.iterative_scan', 'relaxed_order', true)`, local to the transaction so a pooled
+  connection carries nothing over; a `MATERIALIZED` CTE selects the units of that collection and
+  `embedding_model`, ordered by `embedding <=> query_vector` alone (so the HNSW index can serve it), top
+  `limit`; the outer query re-orders by distance, then unit id. `[]` when nothing matches; database errors
+  (a wrong vector length included) propagate.
+- Both open their own connection through `get_engine()`, so Part 3's two threads get one each; the
+  caller passes `limit` (`UNITS_PER_PATH`) and `embedding_model` (the embedder's model); `HNSW_EF_SEARCH`
+  is read inside `vector_search`.
+- Tests, `tests/integration/test_search_paths.py`, assets and units written straight into the database
+  with hand-picked bodies and axis vectors: keyword ranks the best matching unit first; matches word
+  forms; stays inside the collection; stop words only returns nothing; understands quotes and minus;
+  odd input does not raise; ties break on unit id; returns at most `limit`. Vector ranks the nearest unit
+  first; stays inside the collection; skips another `embedding_model`; ties break on unit id; returns at
+  most `limit`; its index settings last only for the transaction. Not provable at test size: that the
+  iterative scan refills a filtered result (the planner scans the small table without the index).
 
 ---
 
