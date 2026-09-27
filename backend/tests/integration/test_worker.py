@@ -53,7 +53,7 @@ def expire_lease(db, asset_id):
         )
 
 
-def test_image_becomes_ready_with_metadata_and_image_units(db, blob_store):
+def test_image_becomes_ready_with_metadata_image_and_filename_units(db, blob_store):
     asset_id = upload("demo", "IMG_2101.jpg", jpeg_bytes()).asset["id"]
 
     assert run_once() is True
@@ -64,8 +64,12 @@ def test_image_becomes_ready_with_metadata_and_image_units(db, blob_store):
     assert asset["image_type"] == "photo"
     assert asset["tags"][-4:] == ["image", "picture", "photo", "photograph"]
     units = load_units(db, asset_id)
-    assert [unit["kind"] for unit in units] == ["image", "metadata"]
-    image_unit, metadata_unit = units
+    assert [unit["kind"] for unit in units] == ["filename", "image", "metadata"]
+    filename_unit, image_unit, metadata_unit = units
+    assert filename_unit["body"] == "IMG_2101.jpg IMG 2101 jpg"
+    assert filename_unit["start_char"] is None
+    assert filename_unit["end_char"] is None
+    assert filename_unit["embedding"] is not None
     assert image_unit["body"] is None
     assert image_unit["embedding"] is not None
     assert metadata_unit["body"].startswith("Car key on a red umbrella hook")
@@ -83,7 +87,7 @@ def test_text_has_one_content_unit_per_chunk(db, blob_store):
     assert len(chunks) >= 3
     units = load_units(db, asset_id)
     content_units = [unit for unit in units if unit["kind"] == "content"]
-    assert len(units) == len(chunks) + 1
+    assert len(units) == len(chunks) + 2
     assert [(unit["start_char"], unit["end_char"]) for unit in content_units] == [
         (chunk.start, chunk.end) for chunk in chunks
     ]
@@ -195,7 +199,7 @@ def test_stale_worker_cannot_commit(db, blob_store):
     metadata = normalise(
         Metadata(title="t", description="d", tags=[], visible_text="", image_type=None), "text"
     )
-    units = build_units("text", metadata, None, [])
+    units = build_units("text", "slow.txt", metadata, None, [])
     vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
 
     assert commit_ready(stale_claim, metadata, units, vectors) is False

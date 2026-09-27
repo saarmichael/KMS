@@ -7,6 +7,7 @@ worker dies, the reaper puts the asset back after LEASE_MINUTES.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -33,7 +34,7 @@ class Unit:
     """One search unit, ready to be embedded and stored.
 
     Attributes:
-        kind: "metadata", "content" or "image".
+        kind: "metadata", "filename", "content" or "image".
         unit_index: The unit's position among the asset's units of the same kind.
         start_char: For a content unit, where its chunk starts in the file; otherwise None.
         end_char: For a content unit, where its chunk ends in the file; otherwise None.
@@ -112,7 +113,7 @@ def process(asset: RowMapping) -> None:
     logger.info("asset_described asset_id=%s model=%s", asset["id"], description.model)
     metadata = normalise(description.metadata, asset["asset_type"])
 
-    units = build_units(asset["asset_type"], metadata, prepared_image, chunks)
+    units = build_units(asset["asset_type"], asset["filename"], metadata, prepared_image, chunks)
     vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
     commit_ready(asset, metadata, units, vectors)
 
@@ -134,8 +135,25 @@ def metadata_body(metadata: Metadata) -> str:
     return "\n\n".join(blocks)
 
 
+def filename_body(filename: str) -> str:
+    """Return the text of an asset's filename unit.
+
+    Postgres keeps a bare file name such as "notes-lisbon.txt" as one token, so a search for
+    "lisbon" would miss it. The name's words are written out after it so each one is indexed.
+
+    Args:
+        filename: The name the asset was first uploaded under.
+
+    Returns:
+        The full name, then its words: every run of letters and digits, in order.
+    """
+    words = re.findall(r"[^\W_]+", filename)
+    return " ".join([filename, *words])
+
+
 def build_units(
     asset_type: str,
+    filename: str,
     metadata: Metadata,
     prepared_image: bytes | None,
     chunks: list[Chunk],
@@ -144,15 +162,21 @@ def build_units(
 
     Args:
         asset_type: "image" or "text".
+        filename: The name the asset was first uploaded under.
         metadata: The normalised metadata.
         prepared_image: The JPEG the AI calls see, for an image; None for a text file.
         chunks: The text file's chunks; empty for an image.
 
     Returns:
-        The metadata unit, then the image unit for an image or one content unit per chunk.
+        The metadata unit, the filename unit, then the image unit for an image or one content
+        unit per chunk.
     """
     body = metadata_body(metadata)
-    units = [Unit("metadata", 0, None, None, body, body)]
+    name_body = filename_body(filename)
+    units = [
+        Unit("metadata", 0, None, None, body, body),
+        Unit("filename", 0, None, None, name_body, name_body),
+    ]
     if asset_type == "image":
         units.append(Unit("image", 0, None, None, None, prepared_image))
     for index, chunk in enumerate(chunks):
