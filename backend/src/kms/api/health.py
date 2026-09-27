@@ -8,8 +8,14 @@ router = APIRouter()
 
 @router.get("/api/health")
 def health() -> dict:
-    """One call that answers 'is this deployment sound': DB reachable, schema current,
-    and LISTEN/NOTIFY delivered on this connection (the queue's wake-up mechanism)."""
+    """Answer 'is this deployment sound' in one call.
+
+    Checks that the DB is reachable, the schema is current, and LISTEN/NOTIFY is delivered on
+    this connection (the queue's wake-up mechanism).
+
+    Returns:
+        Each check's result, and a `status` of "ok", or "degraded" when any check fails.
+    """
     engine = db.get_engine()
     url = engine.url.render_as_string(hide_password=False)
     out: dict = {"status": "ok"}

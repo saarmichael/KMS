@@ -13,6 +13,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """The app's configuration.
+
+    Each field is read from the environment variable of the same name, falling back to the
+    default given here.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- database ------------------------------------------------------------
@@ -60,7 +66,16 @@ class Settings(BaseSettings):
     @field_validator("database_url", "test_database_url")
     @classmethod
     def _psycopg_driver(cls, v: str) -> str:
-        """Platforms hand out plain `postgresql://` URLs; SQLAlchemy needs the driver named."""
+        """Name the psycopg driver in a database URL that lacks it.
+
+        Platforms hand out plain `postgresql://` URLs; SQLAlchemy needs the driver named.
+
+        Args:
+            v: The database URL as configured.
+
+        Returns:
+            The URL with a `postgresql+psycopg://` scheme; a URL with any other scheme unchanged.
+        """
         if v.startswith("postgresql://"):
             return "postgresql+psycopg://" + v[len("postgresql://") :]
         if v.startswith("postgres://"):
@@ -70,4 +85,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """The settings, read once and cached for the life of the process."""
     return Settings()

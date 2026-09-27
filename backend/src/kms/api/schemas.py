@@ -16,6 +16,8 @@ COLLECTION_NAME_PATTERN = r"^[a-z0-9_-]{1,64}$"
 
 
 class AssetMetadata(BaseModel):
+    """What the describer found in an asset; present only once the asset is ready."""
+
     title: str
     description: str
     tags: list[str]
@@ -25,6 +27,8 @@ class AssetMetadata(BaseModel):
 
 
 class Asset(BaseModel):
+    """One uploaded file and where it stands in processing."""
+
     id: UUID
     collection: str
     filename: str
@@ -39,7 +43,14 @@ class Asset(BaseModel):
 
     @classmethod
     def from_row(cls, row: RowMapping) -> "Asset":
-        """Build the API shape from an `assets` row; metadata exists only once it is ready."""
+        """Build the API shape from an `assets` row; metadata exists only once it is ready.
+
+        Args:
+            row: One row of the `assets` table.
+
+        Returns:
+            The asset as the API sends it.
+        """
         metadata = None
         if row["status"] == "ready":
             metadata = AssetMetadata(
@@ -68,18 +79,26 @@ class Asset(BaseModel):
 
 
 class UploadResponse(BaseModel):
+    """The answer to an upload: the asset, and whether its bytes were already stored."""
+
     deduplicated: bool
     asset: Asset
 
 
 class AssetList(BaseModel):
+    """The assets of one collection, newest first."""
+
     assets: list[Asset]
 
 
 class Collection(BaseModel):
+    """A collection and how many assets it holds."""
+
     name: str
     asset_count: int
 
 
 class CollectionList(BaseModel):
+    """Every collection that holds at least one asset, sorted by name."""
+
     collections: list[Collection]

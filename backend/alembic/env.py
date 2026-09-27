@@ -18,12 +18,14 @@ config.set_main_option("sqlalchemy.url", url)
 
 
 def run_migrations_offline() -> None:
+    """Emit the migrations as SQL, without connecting to the database."""
     context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
+    """Apply the migrations over a live connection to the database."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

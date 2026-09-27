@@ -18,6 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create the pgvector extension, both tables and their indexes."""
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     op.create_table(
@@ -88,6 +89,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop both tables and the pgvector extension."""
     op.drop_table("search_units")
     op.drop_table("assets")
     op.execute("DROP EXTENSION IF EXISTS vector")

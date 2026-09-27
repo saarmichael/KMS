@@ -40,12 +40,29 @@ class UnsupportedFileType(Exception):
 
 @dataclass(frozen=True)
 class UploadResult:
+    """What an upload produced.
+
+    Attributes:
+        deduplicated: True when the collection already held these bytes.
+        asset: The asset's row, new or existing.
+    """
+
     deduplicated: bool
     asset: RowMapping
 
 
 def sniff(data: bytes) -> tuple[str, str]:
-    """Return (asset_type, mime) decided from the bytes alone, never from the filename."""
+    """Decide the asset's type from the bytes alone, never from the filename.
+
+    Args:
+        data: The file's bytes.
+
+    Returns:
+        `(asset_type, mime)`: `("image", <image mime>)` or `("text", "text/plain")`.
+
+    Raises:
+        UnsupportedFileType: The file is empty, or neither an accepted image nor UTF-8 text.
+    """
     if not data:
         raise UnsupportedFileType("The file is empty.")
 
@@ -59,7 +76,15 @@ def sniff(data: bytes) -> tuple[str, str]:
 
 
 def read_image_format(data: bytes) -> str | None:
-    """Pillow's name for the image format ("JPEG", "GIF", …), or None if the bytes are no image."""
+    """Read the image format from the bytes' header.
+
+    Args:
+        data: The file's bytes.
+
+    Returns:
+        Pillow's name for the format ("JPEG", "GIF", …), or None if the bytes are no image or
+        claim a pixel count too large to decode safely.
+    """
     try:
         # Image.open reads only the header, so this is cheap even for a 10 MB file.
         with Image.open(io.BytesIO(data)) as image:
@@ -72,7 +97,14 @@ def read_image_format(data: bytes) -> str | None:
 
 
 def is_utf8_text(data: bytes) -> bool:
-    """True for strict UTF-8 (an optional byte-order mark allowed) with no NUL bytes."""
+    """Tell whether the bytes are a text file.
+
+    Args:
+        data: The file's bytes.
+
+    Returns:
+        True for strict UTF-8 (an optional byte-order mark allowed) with no NUL bytes.
+    """
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -82,7 +114,22 @@ def is_utf8_text(data: bytes) -> bool:
 
 
 def upload(collection: str, filename: str, data: bytes) -> UploadResult:
-    """Store the file and queue it, or return the asset that already holds these bytes."""
+    """Store the file and queue it, or return the asset that already holds these bytes.
+
+    A duplicate under a new name adds that name to the existing asset's aliases.
+
+    Args:
+        collection: The collection to store the file in, already validated.
+        filename: The name the file was uploaded under.
+        data: The file's bytes.
+
+    Returns:
+        The asset, and whether these bytes were already in the collection.
+
+    Raises:
+        FileTooLarge: The file is over the upload limit.
+        UnsupportedFileType: The bytes are neither an accepted image nor UTF-8 text.
+    """
     max_bytes = get_settings().max_upload_bytes
     if len(data) > max_bytes:
         raise FileTooLarge(f"File is larger than the {max_bytes // (1024 * 1024)} MB limit.")

@@ -30,7 +30,14 @@ def list_collections() -> CollectionList:
 
 @router.delete("/api/collections/{name}", status_code=204)
 def delete_collection(name: Annotated[str, Path(pattern=COLLECTION_NAME_PATTERN)]) -> Response:
-    """Delete the collection's assets; their search units go with them. Files stay on disk."""
+    """Delete the collection's assets; their search units go with them. Files stay on disk.
+
+    Args:
+        name: The collection to delete.
+
+    Returns:
+        An empty 204, also when the collection held nothing.
+    """
     with get_engine().begin() as connection:
         connection.execute(delete(assets).where(assets.c.collection == name))
     # Also 204 when nothing was deleted: deleting twice is not an error.

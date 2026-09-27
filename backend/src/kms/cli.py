@@ -4,6 +4,7 @@ import sys
 
 
 def main() -> None:
+    """Run the command named on the command line; `migrate` is the only one."""
     cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
     if cmd == "migrate":
         from kms.config import get_settings

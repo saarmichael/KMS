@@ -7,6 +7,7 @@ _store: BlobStore | None = None
 
 
 def get_blob_store() -> BlobStore:
+    """The process-wide blob store, created from settings on first use."""
     global _store
     if _store is None:
         _store = LocalBlobStore(get_settings().blob_dir)
@@ -14,6 +15,10 @@ def get_blob_store() -> BlobStore:
 
 
 def set_blob_store(store: BlobStore | None) -> None:
-    """Tests inject a store on a temporary folder."""
+    """Replace the process-wide blob store; tests inject one on a temporary folder.
+
+    Args:
+        store: The store to use from now on, or None to build one from settings on next use.
+    """
     global _store
     _store = store
