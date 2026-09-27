@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Long enough for a large image on a slow model; a call that takes longer is treated as lost
 # and retried.
-REQUEST_TIMEOUT_SECONDS = 120
+GEMINI_REQUEST_TIMEOUT_SECONDS = 120
 # Covers the thinking and the JSON together; the long field is `visible_text` on a page full
 # of words.
 MAX_OUTPUT_TOKENS = 8192

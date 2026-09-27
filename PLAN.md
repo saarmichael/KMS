@@ -446,7 +446,7 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | 1 | The answering model is stored | Migration 0002 adds `assets.vision_model`; the worker writes `description.model`; the API returns it | done |
 | 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | done |
 | 3 | `GeminiVision` and prompts | `ai/prompts.py` (image, text, repair, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | done |
-| 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | plan approved, in implementation |
+| 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | done |
 | 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | not planned |
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | not planned |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
@@ -573,7 +573,10 @@ Open points, settled in the part named:
 - *Client passed in, as in Part 3:* `VoyageEmbedder(client, model, dims)`; `get_embedder()` builds
   `voyageai.Client(api_key=..., max_retries=0, timeout=REQUEST_TIMEOUT_SECONDS)` with `REQUEST_TIMEOUT_SECONDS =
   60` in `ai/voyage.py` (the SDK has no timeout by default). Tests pass a stub client to the constructor.
-  Amended Sep 27 from "the adapter builds its own client", to match Part 3's injection.
+  Amended Sep 27 from "the adapter builds its own client", to match Part 3's injection. After implementation
+  the timeout constants were named per vendor, `GEMINI_REQUEST_TIMEOUT_SECONDS` (in `ai/gemini.py`) and
+  `VOYAGE_REQUEST_TIMEOUT_SECONDS`, so `ai/__init__.py` imports both without an alias; the `real_provider`
+  test fixture moved to a new `tests/unit/conftest.py`, shared by both adapters' tests.
 - *Dimensions:* `output_dimension=dims` on every call; a wrong vector count or length raises `ValueError`
   (permanent) instead of failing later at the `vector(1024)` insert.
 - *Files:* new `ai/voyage.py`; `ai/__init__.py` `get_embedder()` builds the client and `VoyageEmbedder(client,
