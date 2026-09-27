@@ -65,12 +65,13 @@ anything), and why Michael's version was kept. The list is one of the things Mic
 
 ## Claude's recommendations
 
-`docs/claude-recommendations.md` is the complement of the additions list: every design-level choice that
-Claude proposed and Michael accepted as proposed, without changing or challenging it. A default value
-accepted without discussion counts; a choice Michael changed or brought himself goes to the additions list
-instead, never to both. Claude writes the entry in the same step as the decision, with the date, the
-phase, the decision, Claude's reasoning, the alternative weighed, and where it is recorded (a D-number, a
-plan, a commit).
+`docs/claude-recommendations.md` is the complement of the additions list: the design choices that Claude
+proposed and Michael accepted as proposed. It lists only choices worth presenting: a real trade-off that
+shapes how the system works and that a reviewer could ask about. Defaults, constants, names, test choices
+and small implementation details do not count. A choice Michael changed or brought himself goes to the
+additions list instead, never to both. Claude writes the entry in the same step as the decision, in one
+short row: the date, the phase, the decision, Claude's reasoning, the alternative weighed, and where it is
+recorded (a D-number, a plan, a commit).
 
 ## Tracks
 
