@@ -6,6 +6,7 @@ The caller has already validated the collection name.
 
 import hashlib
 import io
+import logging
 from dataclasses import dataclass
 
 from PIL import Image, UnidentifiedImageError
@@ -17,6 +18,8 @@ from kms.blob import get_blob_store
 from kms.config import get_settings
 from kms.db import get_engine, notify_asset_pending
 from kms.models import assets
+
+logger = logging.getLogger(__name__)
 
 # Pillow's format name → the mime type stored on the asset.
 ACCEPTED_IMAGE_FORMATS = {
@@ -158,6 +161,13 @@ def upload(collection: str, filename: str, data: bytes) -> UploadResult:
         new_asset = connection.execute(insert_new_asset).mappings().first()
         if new_asset is not None:
             notify_asset_pending(connection, new_asset["id"])
+            logger.info(
+                "asset_uploaded asset_id=%s collection=%s asset_type=%s size_bytes=%d",
+                new_asset["id"],
+                collection,
+                asset_type,
+                len(data),
+            )
             return UploadResult(deduplicated=False, asset=new_asset)
 
         same_bytes = (assets.c.collection == collection) & (assets.c.sha256 == sha256)

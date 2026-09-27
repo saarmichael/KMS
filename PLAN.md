@@ -62,6 +62,8 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D43 | Where the seed collection lives | Outside the repo, at `../seed` (the `SEED_DIR` default), never committed: the photos are personal. How `kms seed` and the matrix read it is settled in Phase 6. The `FakeVision` fixtures that describe its files (filenames plus short hand-written metadata) are committed | decided (Sep 27) |
 | D44 | Chunker built with the worker | The chunker and unit test 1 move from the last step of Phase 3 into the worker part, so the worker builds real content units from the start instead of one placeholder chunk per file. Replaces D41's placement | decided (Sep 27) |
 | D45 | Photo date and place to the vision model | EXIF date taken and GPS are read from the original bytes (`ingest/images.py`) and passed to `Vision.describe` as `PhotoDetails`; the Phase 4 prompt tells the model to use them only when they help, naming place and time in the description and tags. Date and GPS only; no new columns (a structured date-taken column is a later option). An image without them works as before. Michael's addition | decided (Sep 27) |
+| D46 | A naive chunker | Fixed windows of `CHUNK_SIZE_CHARS` (1,600) with `CHUNK_OVERLAP_CHARS` (240) overlap, each ending at its last space; sizes in characters, not tokens. The chunker shows the structure (content units with offsets); the recursive paragraph → sentence → word split is noted in the design as the next step. Michael's addition | decided (Sep 27) |
+| D47 | A failed attempt goes back to `pending` at once | The adapter's own backoff covers blips; the asset gets its next full pass right away, and after `MAX_ATTEMPTS` it is `failed`. An expired lease counts as an attempt: at the cap the reaper marks the asset `failed` instead of re-queueing it. Chosen for the simpler claim query over a delay of one lease length | decided (Sep 27) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -355,7 +357,8 @@ that must show its work. The adapter interfaces are designed here, against the w
 6. `ingest/worker.py`: `claim_one()` (SKIP LOCKED, status/started_at/attempts), `process(asset)` (load,
    preprocess, describe via the summary source, build units, embed in one batch, commit metadata + units +
    `ready` in one transaction), `run_once()` and `run_forever()`; the outer retry loop (adapter gave up →
-   back to `pending` via the lease; `attempts = 3` → `failed` with the message). `reaper()` on startup and
+   back to `pending` at once; `attempts = 3` → `failed` with the message; an expired lease at the cap →
+   `failed`). `reaper()` on startup and
    every minute.
 7. Listener: dedicated autocommit connection, `LISTEN asset_pending`, wait with a 1 s timeout, reconnect
    loop. Wake-up triggers a claim; the timeout is the poll guarantee.
@@ -365,8 +368,8 @@ that must show its work. The adapter interfaces are designed here, against the w
    worker off use the flag.
 9. Structured logging of every state transition with asset id, attempt and duration: upload, claim,
    commit, failure, reaper reset. Built here once; Phase 8 only checks it reads well in Railway's log view.
-10. `ingest/chunker.py` (D41), built with the worker in step 6 (D44): recursive paragraph → sentence → word split, configurable
-    target/max/overlap, character offsets; unit test 1. Size units (chars or tokens) decided in its plan.
+10. `ingest/chunker.py` (D41), built with the worker in step 6 (D44): fixed character windows ending at a space,
+    configurable size and overlap, character offsets; unit test 1 (D46).
 
 **Tests that pass here.** Unit 3 (schema normalisation). Integration 5a (upload → worker → `ready`, units written, one per chunk plus
 metadata plus image unit). Integration 7 (reaper resets stale `processing`, leaves fresh; third failure →

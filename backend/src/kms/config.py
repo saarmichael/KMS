@@ -43,9 +43,9 @@ class Settings(BaseSettings):
     lease_minutes: int = 10
     max_attempts: int = 3
     max_upload_bytes: int = 10 * 1024 * 1024
-    chunk_target_tokens: int = 400
-    chunk_max_tokens: int = 512
-    chunk_overlap_tokens: int = 60
+    # About 400 tokens with 15% overlap; characters, so they match the stored offsets.
+    chunk_size_chars: int = 1600
+    chunk_overlap_chars: int = 240
     summary_token_budget: int = 200_000
 
     # --- search --------------------------------------------------------------

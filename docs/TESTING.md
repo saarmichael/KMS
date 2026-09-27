@@ -31,7 +31,7 @@ Runner: `pytest`. Integration tests use the compose Postgres (`docker compose up
 
 **Unit — no DB, no network**
 
-1. Chunker: offsets are correct, overlap ≈ 15 %, no chunk exceeds the hard max, recursive split prefers paragraph → sentence → word.
+1. Chunker: offsets are correct, consecutive chunks overlap and cover the whole text, no chunk exceeds the size, no word is cut.
 2. RRF merge + group-by-asset: a unit found on both paths outranks one found on either alone; best unit wins per asset; normalised score is 1.0 for the top asset.
 3. Schema normalisation: tags lowercased and deduped, list lengths clamped, over-long text truncated, `image_type` null for text.
 4. Error classification: 429 / 5xx / timeout → transient (retried with backoff); 400 / 413 / 401 / safety block → permanent (fails at once).

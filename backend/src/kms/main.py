@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from kms.api import assets, collections, health
 from kms.config import get_settings
+from kms.logs import configure_logging
 
 
 def flatten_validation_error(
@@ -33,6 +34,7 @@ def flatten_validation_error(
 
 def create_app() -> FastAPI:
     """Build the app: the API routers, plus the built SPA when `static_dir` holds one."""
+    configure_logging()
     app = FastAPI(title="KMS", version="0.1.0")
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
     app.include_router(health.router)
