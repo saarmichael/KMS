@@ -342,7 +342,8 @@ that must show its work. The adapter interfaces are designed here, against the w
 2. Interfaces: `Vision.describe(bytes | text, asset_type) -> Metadata`, `Embedder.embed(units) -> vectors`.
    The `Reranker` interface arrives with search in Phase 5 (D16).
 3. Fake adapters exactly as the test plan describes: `FakeVision` (fixture dict by filename, generic
-   fallback, invalid-JSON-once mode) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
+   fallback, a filename containing `invalid` always fails validation; the "once" mode comes with the
+   repair retry in Phase 4) and `FakeEmbedder` (hashed bag-of-words, L2-normalised, image from
    byte hash). Selected by `AI_PROVIDER`. The fixture dict holds hand-written metadata for the files the
    demo uploads, so the whole pipeline runs on static data until Phase 4.
 4. `ingest/images.py`: EXIF rotation fix, downscale to ~1024 px, re-encode.
@@ -396,10 +397,10 @@ is exercised by its real caller: upload a file and read Gemini's metadata back f
 
 1. `ai/errors.py` (D24): transient vs permanent classification; tenacity backoff with jitter, honouring
    Gemini's `RetryInfo.retryDelay`. SDK retries off on both clients.
-2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate → normalise →
+2. Real adapters behind the Phase 3 interfaces: `GeminiVision` (response_schema → validate →
    one repair retry → permanent error; lowest thinking level, D25; on an overloaded answer it moves to the
    next id in `VISION_MODELS` and reports which model answered, D23), `VoyageEmbedder` (batched,
-   `input_type` query/document). Prompts live in `ai/prompts/`. `VISION_MODELS` replaces the single
+   `input_type` query/document). Adapters return validated metadata; the worker normalises it. Prompts live in `ai/prompts/`. `VISION_MODELS` replaces the single
    `VISION_MODEL` setting.
 3. Migration 0002 adds `assets.vision_model`; the worker writes the answering model with the metadata.
 4. Recorded responses (D22): `ai/recorded.py` wraps the real adapters. Each call is keyed by a hash of
