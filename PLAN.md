@@ -445,8 +445,8 @@ the next part starts only when Michael says so. Vendor-free parts first, real ve
 | --- | --- | --- | --- |
 | 1 | The answering model is stored | Migration 0002 adds `assets.vision_model`; the worker writes `description.model`; the API returns it | done |
 | 2 | Vendor error handling | `ai/errors.py`: transient / overloaded (next model) / permanent (incl. 402); tenacity backoff honouring `RetryInfo.retryDelay`; unit test 4 | done |
-| 3 | `GeminiVision` and prompts | `ai/prompts/` (image, text, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | not planned |
-| 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | not planned |
+| 3 | `GeminiVision` and prompts | `ai/prompts.py` (image, text, repair, prompt version; photo date and place, D45); `response_schema`, lowest thinking, validation + one repair retry; `VISION_MODELS` walk (D23) replacing `VISION_MODEL`; `get_vision()` builds it for `AI_PROVIDER=real` | done |
+| 4 | `VoyageEmbedder` | Batched `multimodal_embed`, `input_type`, image bytes → PIL, SDK retries off; `get_embedder()` builds it for `AI_PROVIDER=real` | plan approved, in implementation |
 | 5 | Record and replay | `ai/recorded.py` wraps the real adapters; key = hash of model, prompt version, input; one JSON file per call under `AI_CACHE_DIR` | not planned |
 | 6 | CLI | `kms describe <file>`, `kms embed <file>...`, either provider | not planned |
 | 7 | Live test | `tests/live/`: output validates, screenshot `visible_text` non-empty, "black hair" closer to "brunette" than to an unrelated sentence | not planned |
@@ -512,6 +512,82 @@ Open points, settled in the part named:
   `test_retries_a_transient_error_then_succeeds`, `test_permanent_error_is_raised_at_once`,
   `test_gives_up_after_four_attempts`, `test_waits_as_long_as_the_server_asks`,
   `test_server_wait_over_the_cap_is_raised_at_once`. Sleep patched with `monkeypatch`; errors built by hand.
+
+**Part 3 plan (approved Sep 27).**
+
+- *Walk inside one backoff (Part 2):* `describe` runs `call_with_retries` around the model walk. Overloaded →
+  next model at once; any other error raised; all overloaded → the last error is raised, backoff (honouring
+  `retryDelay`), restart at the first model.
+- *Validation and repair per model, inside the walk:* generate → validate; invalid → one repair call to the same
+  model → validate; still invalid → `ValidationError` (permanent). An overloaded answer to the repair call moves
+  the walk on; the next model starts fresh. The repair re-sends the whole conversation: prompt and image, the bad
+  answer, then `REPAIR_PROMPT` with the validation error. `FakeVision` gets no "invalid once" mode; the repair is
+  tested with a stub client (`docs/TESTING.md` amended).
+- *Safety block:* `prompt_feedback.block_reason`, or a candidate finishing for a safety or prohibited-content
+  reason, raises `ContentBlockedError("Gemini blocked the answer: <reason>")`; permanent through `classify`'s
+  unknown-error rule, `errors.py` unchanged.
+- *Client passed in:* `GeminiVision(client, models)`; `get_vision()` builds `genai.Client(api_key=...,
+  http_options=HttpOptions(timeout=REQUEST_TIMEOUT_SECONDS * 1000))`, SDK retries off (no `retry_options`).
+  `REQUEST_TIMEOUT_SECONDS = 120`. A timeout arrives as an `httpx` error: transient.
+- *Request:* `response_mime_type="application/json"`, `response_schema=Metadata`,
+  `thinking_config=ThinkingConfig(thinking_level=MINIMAL)` (D25), `max_output_tokens=MAX_OUTPUT_TOKENS` (8,192,
+  constant; covers thinking and the JSON). Default temperature. An image is the prompt plus
+  `Part.from_bytes(prepared JPEG, "image/jpeg")`; a text file is `TEXT_PROMPT` plus the summary text as its own
+  part. The filename is never sent.
+- *Prompts (`ai/prompts.py`, one module):* the spike's prompts; tags "lowercase words or short phrases"; the image
+  prompt adds D45's date and position lines when present, used only when they help, naming place and time in the
+  description and tags; the text prompt asks for `image_type` null. `PROMPT_VERSION = 1`, for Part 5's
+  recording key; not written to `assets.metadata_version` (that column tracks the schema's shape).
+- *Settings:* `vision_model: str` → `vision_models: list[str] = Field(min_length=1)`, D23's list as default,
+  `VISION_MODELS` as a JSON list; `.env.example` gains a commented line. `AI_PROVIDER=real` without
+  `GEMINI_API_KEY` → `get_vision()` raises `ValueError("GEMINI_API_KEY is not set")`, so the asset fails with it.
+- *Files:* new `ai/prompts.py`, `ai/gemini.py`, `tests/unit/test_gemini_vision.py`, `tests/unit/test_prompts.py`;
+  changed `ai/__init__.py`, `config.py`, `.env.example`, `tests/unit/test_fake_adapters.py`,
+  `tests/unit/test_settings.py`. No new dependency.
+- *Functions:* `build_image_prompt(photo_details: PhotoDetails | None) -> str` (never raises);
+  `GeminiVision.describe(content, asset_type, filename, photo_details) -> Description` (validated, not
+  normalised; raises `ValidationError`, `ContentBlockedError` or the vendor error unchanged);
+  `_describe_with_fallback(contents) -> Description` (the walk; logs `vision_model_overloaded model= error=`);
+  `_describe_with_model(model, contents) -> Metadata` (generate, validate, one repair; logs `vision_repair model=
+  error=`); `_generate(model, contents) -> str` (one call, answer text or `""`; raises `ContentBlockedError`; logs
+  `vision_call model= prompt_tokens= output_tokens= thinking_tokens= seconds=`).
+- *Tests:* `test_first_model_answers`, `test_overloaded_model_moves_to_next_at_once`,
+  `test_all_models_overloaded_backs_off_and_restarts_at_first`, `test_permanent_error_does_not_try_next_model`,
+  `test_invalid_answer_is_repaired_once`, `test_invalid_twice_raises_validation_error`,
+  `test_blocked_answer_raises_content_blocked`, `test_request_uses_schema_lowest_thinking_and_output_limit`,
+  `test_text_file_is_sent_as_text_without_image`; `test_image_prompt_names_date_and_place_when_given`,
+  `test_image_prompt_leaves_them_out_when_absent`; `test_real_provider_not_available_yet` becomes
+  `test_real_provider_builds_gemini_vision` (dummy key, no call; the embedder still raises);
+  `test_vision_models_read_from_json_list`.
+- *Demo:* `make test` green; `AI_PROVIDER=real`, upload the spike screenshot → `ready` with real metadata and
+  `vision_model`; on a `402` it fails with the message after one call per attempt, no walk.
+- *Not verified:* `thinking_level=MINIMAL` on the flash-lite models; a `400` would fail the asset. Checked once per
+  model before Part 8.
+
+**Part 4 plan (approved Sep 27).** Planned as if Part 3 were done; touches only the embedding side.
+
+- *Batching:* at most `MAX_INPUTS_PER_CALL = 100` inputs per `multimodal_embed` call (Voyage allows 1,000
+  inputs and 320K tokens; 100 × the largest unit, ~2,800 tokens, stays under). Vectors joined in input order.
+  Each batch goes through its own `call_with_retries`; if one still fails, `embed()` raises and the worker's
+  next attempt re-embeds everything. No model fallback (D23).
+- *Client passed in, as in Part 3:* `VoyageEmbedder(client, model, dims)`; `get_embedder()` builds
+  `voyageai.Client(api_key=..., max_retries=0, timeout=REQUEST_TIMEOUT_SECONDS)` with `REQUEST_TIMEOUT_SECONDS =
+  60` in `ai/voyage.py` (the SDK has no timeout by default). Tests pass a stub client to the constructor.
+  Amended Sep 27 from "the adapter builds its own client", to match Part 3's injection.
+- *Dimensions:* `output_dimension=dims` on every call; a wrong vector count or length raises `ValueError`
+  (permanent) instead of failing later at the `vector(1024)` insert.
+- *Files:* new `ai/voyage.py`; `ai/__init__.py` `get_embedder()` builds the client and `VoyageEmbedder(client,
+  embedding_model, embedding_dims)` for `"real"` and raises `ValueError("VOYAGE_API_KEY is not set")` without
+  a key; `REAL_NOT_AVAILABLE` is removed (both adapters are real now). No new dependency or setting.
+- *API:* `VoyageEmbedder(client: voyageai.Client, model: str, dims: int)`, no network call; `embed(inputs: list[str | bytes],
+  input_type) -> list[list[float]]`: `str` as text, `bytes` opened with Pillow as an image; `[]` returns `[]`
+  with no call; logs `voyage_embedded inputs= calls= duration_ms=`; raises the vendor error or `ValueError`.
+- *Tests (`tests/unit/test_voyage_embedder.py`, stub client):* `test_texts_and_images_go_in_one_call_in_order`,
+  `test_more_inputs_than_one_call_takes_are_split_in_order`, `test_query_input_type_is_passed_through`,
+  `test_a_transient_error_is_retried`, `test_wrong_vector_length_is_an_error`,
+  `test_empty_input_makes_no_call`, `test_real_provider_builds_the_voyage_embedder`,
+  `test_real_provider_without_a_key_raises`. Part 3's `test_real_provider_builds_gemini_vision` drops its
+  "the embedder still raises" check.
 
 ---
 

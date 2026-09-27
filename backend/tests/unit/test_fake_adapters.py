@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from kms.ai import get_embedder, get_vision, set_embedder, set_vision
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.fake_fixtures import FIXTURES
+from kms.ai.gemini import GeminiVision
 from kms.config import get_settings
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -80,8 +81,10 @@ def real_provider(monkeypatch):
     set_embedder(None)
 
 
-def test_real_provider_not_available_yet(real_provider):
-    with pytest.raises(NotImplementedError):
-        get_vision()
+def test_real_provider_builds_gemini_vision(real_provider, monkeypatch):
+    # A dummy key: building the client makes no call.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    get_settings.cache_clear()
+    assert isinstance(get_vision(), GeminiVision)
     with pytest.raises(NotImplementedError):
         get_embedder()

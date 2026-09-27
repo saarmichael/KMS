@@ -20,7 +20,7 @@ Both deterministic, selected with `AI_PROVIDER=fake`. The same switch is the loc
 
 | Adapter | Behaviour |
 | --- | --- |
-| `FakeVision` | Returns metadata keyed on filename from a fixture dict; unknown filename → generic valid metadata. Also has a mode that returns invalid JSON once, to exercise the repair retry. |
+| `FakeVision` | Returns metadata keyed on filename from a fixture dict; unknown filename → generic valid metadata. A filename containing `invalid` always fails validation, to exercise the failure path. The repair retry lives in `GeminiVision` and is tested with a stub Gemini client. |
 | `FakeEmbedder` | Hashed bag-of-words into 1024 dims, L2-normalised. Same text → same vector; "black hair" ≠ "brunette". Images embed from a hash of the bytes. |
 
 Rationale: synonym recall ("brunette" for "black hair") is a property of Voyage, not of our code. Our code's claims are that both paths run, RRF fuses them, both-path hits outrank single-path hits, grouping picks the best unit, and the collection filter holds. All testable with a dumb-but-deterministic embedder.

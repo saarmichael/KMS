@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,8 +30,17 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "real"] = "fake"
     gemini_api_key: str | None = None
     voyage_api_key: str | None = None
-    # The Gemini model that describes images and text files.
-    vision_model: str = "gemini-3-flash-preview"
+    # The Gemini models that describe images and text files, in the order they are tried: the
+    # next one answers when the one before is overloaded. A JSON list in the environment.
+    vision_models: list[str] = Field(
+        default=[
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+        ],
+        min_length=1,
+    )
     embedding_model: str = "voyage-multimodal-3.5"
     embedding_dims: int = 1024
     rerank_enabled: bool = False

@@ -15,3 +15,9 @@ def test_plain_postgres_urls_get_the_psycopg_driver():
     assert s.database_url == "postgresql+psycopg://u:p@h:5432/d"
     s = Settings(_env_file=None, database_url="postgres://u:p@h:5432/d")
     assert s.database_url == "postgresql+psycopg://u:p@h:5432/d"
+
+
+def test_vision_models_read_from_json_list(monkeypatch):
+    monkeypatch.setenv("VISION_MODELS", '["first-model", "second-model"]')
+    s = Settings(_env_file=None)
+    assert s.vision_models == ["first-model", "second-model"]
