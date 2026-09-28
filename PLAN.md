@@ -1224,8 +1224,8 @@ description".
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Upload window, drop anywhere, upload panel; Retry all; centred search; larger text | implemented, in review |
-| 2 | Filters set before searching; an empty home page with "Browse all" | implemented, in review |
+| 1 | Upload window, drop anywhere, upload panel; Retry all; centred search; larger text | done (e3ec848) |
+| 2 | Filters set before searching; an empty home page with "Browse all" | done (e3ec848) |
 
 **Item 5 plan (approved Sep 28).**
 - *Uploads in `App`:* state `uploads: UploadItem[]`, `uploadDialogOpen`, `filesVersion: number`, and
@@ -1264,8 +1264,8 @@ always open and the button is not shown. New icon: `AdjustmentsIcon` (Heroicons 
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Backend: the SPA's pages sent with `Cache-Control: no-cache` | implemented, in review |
-| 2 | Frontend: a "Password needed" screen on any `401` | implemented, in review |
+| 1 | Backend: the SPA's pages sent with `Cache-Control: no-cache` | done (faa69ff) |
+| 2 | Frontend: a "Password needed" screen on any `401` | done (faa69ff) |
 
 **Item 6, Part 1 plan (approved Sep 28).** `main.py`: the `spa()` route sends every file it serves
 (`index.html` and the other files at the root of the build) with `Cache-Control: no-cache`. The hashed files
@@ -1289,7 +1289,7 @@ brings the prompt back).
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Backend: the batches of one `embed()` call run in parallel, capped by `EMBED_PARALLEL_CALLS` | implemented, in review |
+| 1 | Backend: the batches of one `embed()` call run in parallel, capped by `EMBED_PARALLEL_CALLS` | done (2cf1ecc) |
 
 **Item 7, Part 1 plan (approved Sep 28).** Not in scope: the Gemini call, describing and embedding at the
 same time, batch sizes. No new file, no new dependency.
@@ -1310,6 +1310,8 @@ same time, batch sizes. No new file, no new dependency.
   flight); `test_a_failed_batch_fails_the_whole_call` (a permanent error in one batch is raised).
 - *Demo:* upload `pg1184.txt` (2.8 MB) again and compare `voyage_embedded … duration_ms` with the one-to-two
   minutes before. Its old asset row and recordings were deleted Sep 28 so that it runs for real.
+  Measured Sep 28, real vendors, 20 calls, no retries: embedding 83.1 s one at a time, 25.9 s at 10,
+  20.3 s at 20; whole file 93.6 s, 40.7 s, 31.4 s. Default kept at 20.
 
 Each is its own gate; each can be skipped without touching anything else.
 
