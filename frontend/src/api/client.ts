@@ -56,6 +56,9 @@ export function uploadAsset(
     httpRequest.onload = () => {
       if (httpRequest.status >= 200 && httpRequest.status < 300) {
         resolve(JSON.parse(httpRequest.responseText) as UploadResponse)
+      } else if (httpRequest.status === 401) {
+        passwordNeededListener?.()
+        reject(new ApiError(401, PASSWORD_NEEDED))
       } else {
         reject(new ApiError(httpRequest.status, errorDetail(httpRequest.status, httpRequest.responseText)))
       }
@@ -111,6 +114,16 @@ export class ApiError extends Error {
   }
 }
 
+// A 401 means the browser has no password for this site: its prompt was cancelled, or the password was
+// changed while the page was open. Only reloading the page makes the browser ask again, so the app is
+// told once through this listener and can show a screen that says so, instead of every part failing alone.
+const PASSWORD_NEEDED = 'Password needed. Reload the page to enter it.'
+let passwordNeededListener: (() => void) | null = null
+
+export function onPasswordNeeded(listener: () => void): void {
+  passwordNeededListener = listener
+}
+
 // Status 0 stands for "no HTTP answer at all" (server down, network gone).
 // A request the caller cancelled is passed on as the browser's AbortError, so it is never shown as an error.
 async function send(path: string, init?: RequestInit): Promise<Response> {
@@ -125,6 +138,10 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   }
   if (response.ok) {
     return response
+  }
+  if (response.status === 401) {
+    passwordNeededListener?.()
+    throw new ApiError(401, PASSWORD_NEEDED)
   }
   const bodyText = await response.text()
   throw new ApiError(response.status, errorDetail(response.status, bodyText))

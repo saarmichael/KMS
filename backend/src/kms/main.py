@@ -86,10 +86,14 @@ def create_app() -> FastAPI:
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
             """Serve a file of the built SPA, or `index.html` so the SPA's router takes the path."""
+            # Without it the browser may reuse a cached page without asking the server, so the
+            # password prompt never shows and every API call then fails. "no-cache" still lets it
+            # keep the file, but it must check with the server, and so pass the password, first.
+            headers = {"Cache-Control": "no-cache"}
             file = static / path
             if path and file.is_file():
-                return FileResponse(file)
-            return FileResponse(index)
+                return FileResponse(file, headers=headers)
+            return FileResponse(index, headers=headers)
 
     return app
 

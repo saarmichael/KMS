@@ -16,7 +16,7 @@
 //     each file's progress and outcome update its own item as they arrive
 //     when a file ends: `filesVersion` + 1, so CollectionFiles reloads its list, and refreshCollections()
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, deleteCollection, listCollections, uploadAsset } from './api/client'
+import { ApiError, deleteCollection, listCollections, onPasswordNeeded, uploadAsset } from './api/client'
 import type { Collection } from './api/types'
 import { defaultCollection, withDrafts } from './collections'
 import CollectionDropdown from './components/CollectionDropdown'
@@ -24,6 +24,7 @@ import CollectionView from './components/CollectionView'
 import DeleteCollectionDialog from './components/DeleteCollectionDialog'
 import NewCollectionForm from './components/NewCollectionForm'
 import PageDropZone from './components/PageDropZone'
+import PasswordNeeded from './components/PasswordNeeded'
 import StatusMessage from './components/StatusMessage'
 import UploadDialog from './components/UploadDialog'
 import UploadPanel from './components/UploadPanel'
@@ -43,6 +44,12 @@ export default function App() {
   const [filesVersion, setFilesVersion] = useState(0)
   // A ref, not state: the next upload id is only read when files arrive, never shown.
   const nextUploadId = useRef(1)
+  // Set by any request answered 401; the whole app then gives way to the Password needed screen.
+  const [passwordNeeded, setPasswordNeeded] = useState(false)
+
+  useEffect(() => {
+    onPasswordNeeded(() => setPasswordNeeded(true))
+  }, [])
 
   // ---- Talks to the API -------------------------------------------------------------------
 
@@ -176,6 +183,10 @@ export default function App() {
         filesVersion={filesVersion}
       />
     )
+  }
+
+  if (passwordNeeded) {
+    return <PasswordNeeded />
   }
 
   return (
