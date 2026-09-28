@@ -1,44 +1,46 @@
-# Sift — website assets
+# Sift: website assets
 
-## favicon/  (copy these to your site root)
-| File | Use |
-|---|---|
-| favicon.ico | Legacy favicon (16/32/48 px inside) |
-| favicon.svg | Modern browsers, scales crisply |
-| favicon-16x16.png, favicon-32x32.png | PNG fallbacks |
-| apple-touch-icon.png | iOS home screen (180 px, square; iOS rounds the corners) |
-| android-chrome-192x192.png, android-chrome-512x512.png | Android / PWA |
-| maskable-icon-512x512.png | Android adaptive icon (artwork inside the safe zone) |
-| site.webmanifest | Web app manifest referencing the icons |
-
-Small sizes (16–48 px) use a simplified mark: the database crumbling into bits. 180 px and up use the full mark with the sifter.
+The logo is the word **sift**. The dot of the i is a small database (orange top) whose bottom disk
+crumbles into bits; the bits fall and stack up to form the top of the i's stem.
 
 ## logo/
-- `sift-logo-on-dark.*` / `sift-logo-on-light.*`: the full logo, transparent background, tightly cropped. Use "on-dark" over dark backgrounds (light artwork), "on-light" over light ones.
-- `sift-logo-dark-bg.*` / `sift-logo-light-bg.*`: the full logo on its own background (hero images, slides, README).
-- `.svg` is vector (best for the web). `-800` / `-1200` PNGs are web-weight rasters; the unsuffixed PNGs are high-res.
+- `sift-logo-on-light.*`: dark ink, transparent background, for light pages.
+- `sift-logo-on-dark.*`: light ink, transparent background, for dark pages.
+- `sift-logo-{light,dark}-bg.*`: the same on its own background.
+- `.svg` is vector (use this on the web). PNGs are named by pixel height (`-h96` = 96 px tall, so 2x of a 48 px header).
 
-## lockup/
-- `sift-lockup-*`: horizontal mark + wordmark, for a site header.
-- `sift-lockup-compact-*`: the same with the simplified mark, for navbars under ~64 px tall.
-- `sift-wordmark-*`: the name alone.
-- PNGs are provided at 48/96/192 px tall (1x/2x/4x of a 48 px header).
+## mark/
+The i on its own, for tight spaces (avatars, loading states, watermark).
+
+## favicon/  (copy to your site root)
+| File | Use |
+|---|---|
+| favicon.ico, favicon.svg, favicon-16x16.png, favicon-32x32.png | Browser tab. At these sizes the full i is too thin, so they use just the crumbling database dot. |
+| apple-touch-icon.png | iOS home screen, 180 px, square (iOS rounds the corners) |
+| android-chrome-192x192.png, android-chrome-512x512.png | Android / PWA, full i on a rounded tile |
+| maskable-icon-512x512.png | Android adaptive icon, artwork kept inside the safe zone |
+| app-icon.svg | Vector version of the rounded app icon |
+| site.webmanifest | Web app manifest |
 
 ## social/
-- `og-image.png` (1200×630): link preview for Slack, LinkedIn, X, etc.
+`og-image.png` (1200 x 630) for link previews. The tagline is a placeholder based on the project brief; change it in `source/export_mini.py`.
+
+## alternates/
+The two other variants: A (all-ink database) and C (stem still filling).
 
 ## head.html
-Paste into your `<head>`, and replace `YOUR-DOMAIN` with your deployed URL (og:image must be an absolute URL).
+Paste into your `<head>` and replace `YOUR-DOMAIN` with the deployed URL (og:image needs an absolute URL).
 
-## Palette
+## Palette & type
 | Token | Hex |
 |---|---|
-| Ink (dark) | #1B2631 |
-| Bone (light) | #ECE5D6 |
-| Night (background) | #0E151C |
+| Ink | #16202A |
+| Paper | #F7F3EC |
+| Night | #0F161D |
+| Bone (ink on dark) | #EFE9DC |
 | Sift orange | #F0763A |
 
-Typeface: Poppins Bold (wordmark), Poppins Regular (text).
+Typeface: Poppins Bold (wordmark), Poppins Regular (supporting text).
 
 ## source/
-The Python scripts that generate every file (`python3 export.py`; needs pycairo, shapely, scipy, fonttools, pillow and the Poppins font).
+`python3 export_mini.py` regenerates everything (needs pycairo, shapely, fonttools, pillow and Poppins).
