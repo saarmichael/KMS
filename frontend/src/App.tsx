@@ -8,7 +8,7 @@
 //     -> <CollectionDropdown collections>                 (names and counts in the picker)
 //     -> <DeleteCollectionDialog name assetCount>         (the selected one)
 //   Delete button -> dialog -> handleDelete() -> deleteCollection() -> refreshCollections()
-//   selected collection -> <CollectionView collection filesVersion>   (search box, then its files or results)
+//   selected collection -> <CollectionView collection filesVersion theme>   (search box, then its files or results)
 //
 // How an upload flows:
 //   Upload button -> <UploadDialog onFiles>, or files dropped anywhere -> <PageDropZone onFiles>
@@ -26,10 +26,13 @@ import NewCollectionForm from './components/NewCollectionForm'
 import PageDropZone from './components/PageDropZone'
 import PasswordNeeded from './components/PasswordNeeded'
 import StatusMessage from './components/StatusMessage'
+import ThemeToggle from './components/ThemeToggle'
 import UploadDialog from './components/UploadDialog'
 import UploadPanel from './components/UploadPanel'
 import type { UploadItem } from './components/UploadPanel'
 import { ExclamationIcon, FolderIcon, PlusIcon, SpinnerIcon, TrashIcon, UploadIcon } from './components/icons'
+import { applyTheme, currentTheme } from './theme'
+import type { Theme } from './theme'
 
 export default function App() {
   const [collections, setCollections] = useState<Collection[] | null>(null)
@@ -38,6 +41,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [theme, setTheme] = useState<Theme>(currentTheme)
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   // Goes up by one each time an upload ends; the file list reloads when it changes.
@@ -181,8 +185,15 @@ export default function App() {
         key={selectedCollection.name}
         collection={selectedCollection.name}
         filesVersion={filesVersion}
+        theme={theme}
       />
     )
+  }
+
+  function handleToggleTheme() {
+    const next = theme === 'light' ? 'dark' : 'light'
+    applyTheme(next)
+    setTheme(next)
   }
 
   if (passwordNeeded) {
@@ -218,18 +229,22 @@ export default function App() {
                   Upload
                 </button>
               )}
-              {selectedCollection && (
-                <button
-                  type="button"
-                  onClick={() => setDeleting(true)}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-danger-soft hover:text-danger/80"
-                >
-                  <TrashIcon className="size-4" />
-                  Delete
-                </button>
-              )}
             </>
           )}
+          {/* Delete and the theme toggle sit together at the right end of the bar. */}
+          <div className="ml-auto flex items-center gap-2">
+            {selectedCollection && (
+              <button
+                type="button"
+                onClick={() => setDeleting(true)}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-danger-soft hover:text-danger/80"
+              >
+                <TrashIcon className="size-4" />
+                Delete
+              </button>
+            )}
+            <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
+          </div>
         </div>
       </header>
 

@@ -22,6 +22,7 @@ import { useCallback, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { Asset, SearchView, Snippet } from '../api/types'
 import { DEFAULT_VIEW } from '../searchView'
+import type { Theme } from '../theme'
 import AssetDetailDialog from './AssetDetailDialog'
 import CollectionFiles from './CollectionFiles'
 import SearchBar from './SearchBar'
@@ -29,13 +30,17 @@ import SearchOptions from './SearchOptions'
 import SearchResults from './SearchResults'
 import { AdjustmentsIcon, ChevronDownIcon } from './icons'
 // The Sift logo: on the home page the full logo, the word under the sifter; in the bar above results the
-// compact mark and word side by side, which is made for small heights.
+// compact mark and word side by side, which is made for small heights. Each in a light-background and a
+// dark-background version, for the two themes.
+import logoOnDark from '../assets/sift-logo-on-dark-800.png'
 import logoOnLight from '../assets/sift-logo-on-light-800.png'
+import lockupCompactOnDark from '../assets/sift-lockup-compact-on-dark.svg'
 import lockupCompactOnLight from '../assets/sift-lockup-compact-on-light.svg'
 
 type CollectionViewProps = {
   collection: string
   filesVersion: number
+  theme: Theme
 }
 
 type ActiveSearch = {
@@ -51,7 +56,7 @@ type OpenDetail = {
   query: string | null
 }
 
-export default function CollectionView({ collection, filesVersion }: CollectionViewProps) {
+export default function CollectionView({ collection, filesVersion, theme }: CollectionViewProps) {
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null)
   const [searching, setSearching] = useState(false)
   const [detail, setDetail] = useState<OpenDetail | null>(null)
@@ -115,6 +120,8 @@ export default function CollectionView({ collection, filesVersion }: CollectionV
   }
 
   const compact = activeSearch !== null || browsing
+  const fullLogo = theme === 'dark' ? logoOnDark : logoOnLight
+  const compactLogo = theme === 'dark' ? lockupCompactOnDark : lockupCompactOnLight
   const showFilters = compact || filtersOpen
   const toggleClass =
     'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-surface-hover hover:text-accent-text'
@@ -126,7 +133,7 @@ export default function CollectionView({ collection, filesVersion }: CollectionV
       <div className={compact ? 'flex items-center gap-4' : 'flex flex-col items-center gap-5 pb-2'}>
         <button type="button" onClick={handleHome} aria-label="Home" className="shrink-0">
           <img
-            src={compact ? lockupCompactOnLight : logoOnLight}
+            src={compact ? compactLogo : fullLogo}
             alt="Sift"
             className={`logo-moves ${compact ? 'h-9 w-auto' : 'h-64 w-auto'}`}
           />

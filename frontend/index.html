@@ -11,6 +11,25 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#F8F4EB" />
+    <!-- The theme is set here, before the page is painted, so a dark-theme visitor never sees a flash of the
+         light one: the choice saved by the toggle, else the operating system's setting. React reads it from
+         <html> afterwards. -->
+    <script>
+      (function () {
+        var saved = null
+        try {
+          saved = localStorage.getItem('sift-theme')
+        } catch (error) {
+          // Storage can be blocked; the OS setting decides then.
+        }
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        var theme = saved === 'light' || saved === 'dark' ? saved : prefersDark ? 'dark' : 'light'
+        document.documentElement.dataset.theme = theme
+        if (theme === 'dark') {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0E151C')
+        }
+      })()
+    </script>
 
     <!-- Link previews (Slack, LinkedIn, X). The image must be an absolute URL. -->
     <meta property="og:title" content="Sift" />

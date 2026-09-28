@@ -1320,7 +1320,7 @@ same time, batch sizes. No new file, no new dependency.
 | Stage | What | Status |
 | --- | --- | --- |
 | 1 | Brand: assets in place, Poppins, `sift`/`ink` scales and role colours (light), components on roles, lockup logo | done |
-| 2 | Dark theme: dark role values, the inline theme script, `theme.ts`, `ThemeToggle`, the logo per theme | approved |
+| 2 | Dark theme: dark role values, the inline theme script, `theme.ts`, `ThemeToggle`, the logo per theme | done |
 
 **Item 8 plan (approved Sep 28).**
 - *Palette.* `sift`: 50 `#FEF3EC`, 100 `#FDE3D3`, 200 `#FAC6A7`, 300 `#F6A274`, 400 `#F7874A`, 500 `#F0763A`, 600
@@ -1366,6 +1366,10 @@ same time, batch sizes. No new file, no new dependency.
   in light, sun in dark, labelled "Switch to dark theme" / "Switch to light theme". `icons.tsx`: `SunIcon`,
   `MoonIcon` (Heroicons). `App.tsx`: `theme` state from `currentTheme()`, the toggle at the header's far right,
   `theme` passed to `CollectionView`, which picks the on-light or on-dark lockup.
+- *Stage 2, tuned in the browser (Sep 28):* dark `accent-soft` is the brand orange mixed 22% into the dark
+  surface (solid `sift-900` read as brown); the dark block sets `color-scheme: dark` so scrollbars and form
+  controls are dark too; the red Delete button's text is `text-surface` (white on red in light, Ink on the lighter
+  red in dark, where white was too faint).
 - *Tests:* none automated; checked in Chrome per stage (home and compact bar at desktop and phone widths, buttons,
   dialogs, uploads, chips, closeness bars, the favicon; in Stage 2 the same in dark, the toggle, the choice kept
   over a reload, the OS setting when nothing is saved, no light flash on a dark load, the password screen in both),

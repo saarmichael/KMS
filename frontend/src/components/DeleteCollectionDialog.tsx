@@ -83,7 +83,7 @@ export default function DeleteCollectionDialog({ name, assetCount, open, onConfi
           type="button"
           onClick={handleDelete}
           disabled={busy}
-          className="rounded-lg bg-danger px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-danger/90 disabled:opacity-50"
+          className="rounded-lg bg-danger px-3 py-2 text-sm font-semibold text-surface shadow-xs hover:bg-danger/90 disabled:opacity-50"
         >
           {busy ? 'Deleting…' : 'Delete'}
         </button>
