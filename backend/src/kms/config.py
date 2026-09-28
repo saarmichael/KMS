@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     )
     embedding_model: str = "voyage-multimodal-3.5"
     embedding_dims: int = 1024
+    # How many of one embed's batches are sent to Voyage at once. Voyage allows many requests
+    # a minute, but a large file's batches together can pass its tokens-per-minute limit.
+    embed_parallel_calls: int = Field(default=20, ge=1)
     rerank_enabled: bool = False
     rerank_model: str = "rerank-2.5"
     # Where the real vendors' answers are recorded and replayed from; empty turns recording

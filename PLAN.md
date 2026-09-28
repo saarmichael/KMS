@@ -70,6 +70,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D51 | The closest sentence of a match by meaning | For every result whose `match` is `semantic`, whatever its snippet (a passage, a description, a file name), the search finds the sentence of the snippet's text closest in meaning to the query: the text is split into sentences with `pysbd` (rule-based: abbreviations, numbered lists, one line per item; character offsets), all such sentences of the page are embedded in one call with the same embedder as `"document"`, and the closest by cosine to the cached query vector wins. The API returns it as `snippet.sentence_start`/`sentence_end`, counted in the snippet's `text`, so every kind goes through the same code; the card opens its preview on it and the dialog marks it where that text shows (the passage, scrolled to; the description; the file name). Our own embedder, not a second model (Jev was weighed), so the sentence comes from the same model that ranked the result. Computed during the search, after paging, so only shown results cost anything; not stored at ingest (a migration and about 12x the vector rows). A failed sentence embedding leaves the fields `null` and the search succeeds. Phase 9, item 3 | decided (Sep 27) |
 | D52 | Text in an image is its own search unit | An image's `visible_text` becomes its own unit, kind `visible_text`, written only when the text is not empty; the `metadata` unit keeps title, description and tags. A word read from the image is then reported as `snippet.kind` `"visible_text"` (`text` is the asset's `visible_text`, no offsets), filtered by `found_in=visible_text` (its own "Text in image" chip), and embedded on its own. Alternative: one unit and the label worked out at snippet time, which leaves the filter wrong. No migration (`kind` is plain text); existing collections are wiped and uploaded again. Phase 9, item 4 | decided (Sep 27) |
 | D53 | Cancel on the password prompt | The SPA's pages are sent with `Cache-Control: no-cache`, so the browser checks with the server, and so asks for the password, on every page load, instead of reusing a cached page whose API calls then all fail. Any `401` the UI still gets (Cancel pressed, or the password changed while a tab is open) replaces the app with a "Password needed" screen and a Reload button, which brings the browser's prompt back. `no-store` was weighed and gives nothing more; an inline error per component was the state that went unnoticed. Phase 9, item 6 | decided (Sep 28) |
+| D54 | Voyage batches in parallel | `VoyageEmbedder.embed` sends its batches of 100 at the same time from a thread pool of its own, `min(batches, EMBED_PARALLEL_CALLS)` threads, default 20 (a 2.5 MB text file's 19 batches in one round). One pool per call, not one shared by the app, so search's embed calls never wait behind an upload. Each batch keeps its own retries; a batch that still fails fails the whole call after the calls in flight finish, and vectors come back in input order as before. Recordings are unaffected (one per `embed()` call). The cap guards Voyage's tokens-per-minute limit on large uploads; requests per minute (2,000) are far off. Phase 9, item 7. Michael's addition | decided (Sep 28) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1281,6 +1282,34 @@ registers on mount; while true, `<PasswordNeeded />` replaces the whole app. Thu
 the listener; the collections load on every page open does. Tests: none automated; checked in the browser
 (login with the password; the password changed on a running server, a search, Cancel, the screen, Reload
 brings the prompt back).
+
+7. **Voyage batches in parallel (D54)**: a 2.5 MB text file (about 1,840 chunks, 19 Voyage calls) took
+   one to two minutes, most of it the Voyage calls made one after another. On branch `parallel-embed`.
+   Found Sep 28.
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | Backend: the batches of one `embed()` call run in parallel, capped by `EMBED_PARALLEL_CALLS` | implemented, in review |
+
+**Item 7, Part 1 plan (approved Sep 28).** Not in scope: the Gemini call, describing and embedding at the
+same time, batch sizes. No new file, no new dependency.
+
+- *`ai/voyage.py`:* `VoyageEmbedder.__init__(self, client, model, dims, parallel_calls: int)` keeps the cap.
+  `embed(inputs, input_type) -> list[list[float]]`: same signature, return and errors as before; the batches
+  run in a `concurrent.futures.ThreadPoolExecutor` of `min(batches, parallel_calls)` threads, made per call;
+  the vectors are joined in input order; if a batch still fails after its retries, the error of the first
+  failed batch in input order is raised once the calls in flight have finished. The `voyage_embedded` log
+  line gains `parallel=%d`.
+- *`config.py`:* `embed_parallel_calls: int = 20`, at least 1 (`Field(ge=1)`), in the AI section.
+- *`ai/__init__.py`:* passes `settings.embed_parallel_calls` to `VoyageEmbedder`.
+- *`backend/.env.example`:* `EMBED_PARALLEL_CALLS=20` with a one-line comment.
+- *Tests in `tests/unit/test_voyage_embedder.py`:* the fake client is made safe across threads, each vector
+  filled from its own input rather than a shared counter; the existing tests are kept.
+  `test_batches_run_at_the_same_time` (the fake's calls wait at a `threading.Barrier` for 3 batches, so
+  they pass only together); `test_parallel_calls_never_exceed_the_setting` (cap 2, 5 batches, at most 2 in
+  flight); `test_a_failed_batch_fails_the_whole_call` (a permanent error in one batch is raised).
+- *Demo:* upload `pg1184.txt` (2.8 MB) again and compare `voyage_embedded … duration_ms` with the one-to-two
+  minutes before. Its old asset row and recordings were deleted Sep 28 so that it runs for real.
 
 Each is its own gate; each can be skipped without touching anything else.
 

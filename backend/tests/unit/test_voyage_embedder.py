@@ -1,4 +1,5 @@
 import io
+import threading
 import time
 from types import SimpleNamespace
 
@@ -12,31 +13,64 @@ from kms.config import get_settings
 
 MODEL = "voyage-test-model"
 DIMS = 1024
+PARALLEL_CALLS = 20
 
 
 class StubClient:
     """Stands in for voyageai.Client: records each call and answers with numbered vectors.
 
-    Every vector is filled with its input's position across all calls, so the order of the
-    returned vectors can be checked.
+    Batches arrive from several threads at once and in any order, so a vector carries its own
+    input's number: the number a text ends with ("note 17" gives 17), otherwise the input's
+    position in its call. The order of the returned vectors can then be checked.
     """
 
-    def __init__(self, errors: list[Exception] | None = None, vector_length: int | None = None):
+    def __init__(
+        self,
+        errors: list[Exception] | None = None,
+        vector_length: int | None = None,
+        barrier: threading.Barrier | None = None,
+        hold_seconds: float = 0.0,
+        fail_on: str | None = None,
+    ):
         self.errors = errors or []
         self.vector_length = vector_length
+        # Every call waits here, so a test can prove that calls are in flight together.
+        self.barrier = barrier
+        # How long each call takes, so calls in flight overlap.
+        self.hold_seconds = hold_seconds
+        # A call whose inputs include this text fails with a permanent error.
+        self.fail_on = fail_on
         self.calls = []
-        self.inputs_seen = 0
+        self.in_flight = 0
+        self.most_in_flight = 0
+        self.lock = threading.Lock()
 
     def multimodal_embed(self, **kwargs):
-        self.calls.append(kwargs)
-        if self.errors:
-            raise self.errors.pop(0)
-        length = self.vector_length or kwargs["output_dimension"]
-        embeddings = []
-        for _ in kwargs["inputs"]:
-            embeddings.append([float(self.inputs_seen)] * length)
-            self.inputs_seen += 1
-        return SimpleNamespace(embeddings=embeddings)
+        with self.lock:
+            self.calls.append(kwargs)
+            self.in_flight += 1
+            self.most_in_flight = max(self.most_in_flight, self.in_flight)
+            error = self.errors.pop(0) if self.errors else None
+        try:
+            if self.barrier is not None:
+                self.barrier.wait()
+            # An Event's wait, not time.sleep, which the sleeps fixture replaces.
+            threading.Event().wait(self.hold_seconds)
+            if error is not None:
+                raise error
+            if self.fail_on is not None and [self.fail_on] in kwargs["inputs"]:
+                raise voyage_errors.AuthenticationError("bad key", http_status=401)
+            length = self.vector_length or kwargs["output_dimension"]
+            embeddings = []
+            for position, (piece,) in enumerate(kwargs["inputs"]):
+                number = position
+                if isinstance(piece, str) and piece.split()[-1].isdigit():
+                    number = int(piece.split()[-1])
+                embeddings.append([float(number)] * length)
+            return SimpleNamespace(embeddings=embeddings)
+        finally:
+            with self.lock:
+                self.in_flight -= 1
 
 
 @pytest.fixture
@@ -59,7 +93,8 @@ def positions(vectors: list[list[float]]) -> list[int]:
 
 def test_texts_and_images_go_in_one_call_in_order(sleeps):
     client = StubClient()
-    vectors = VoyageEmbedder(client, MODEL, DIMS).embed(["a note", small_jpeg()], "document")
+    embedder = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS)
+    vectors = embedder.embed(["a note", small_jpeg()], "document")
 
     (call,) = client.calls
     text_input, image_input = call["inputs"]
@@ -76,23 +111,24 @@ def test_texts_and_images_go_in_one_call_in_order(sleeps):
 def test_more_inputs_than_one_call_takes_are_split_in_order(sleeps):
     client = StubClient()
     texts = [f"note {number}" for number in range(250)]
-    vectors = VoyageEmbedder(client, MODEL, DIMS).embed(texts, "document")
+    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
 
-    assert [len(call["inputs"]) for call in client.calls] == [100, 100, 50]
+    # The calls may reach the client in any order.
+    assert sorted(len(call["inputs"]) for call in client.calls) == [50, 100, 100]
     sent = [piece for call in client.calls for (piece,) in call["inputs"]]
-    assert sent == texts
+    assert sorted(sent) == sorted(texts)
     assert positions(vectors) == list(range(250))
 
 
 def test_query_input_type_is_passed_through(sleeps):
     client = StubClient()
-    VoyageEmbedder(client, MODEL, DIMS).embed(["red car"], "query")
+    VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["red car"], "query")
     assert client.calls[0]["input_type"] == "query"
 
 
 def test_a_transient_error_is_retried(sleeps):
     client = StubClient(errors=[voyage_errors.RateLimitError("slow down", http_status=429)])
-    vectors = VoyageEmbedder(client, MODEL, DIMS).embed(["a note"], "document")
+    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["a note"], "document")
     assert len(client.calls) == 2
     assert len(sleeps) == 1
     assert len(vectors) == 1
@@ -102,13 +138,41 @@ def test_a_transient_error_is_retried(sleeps):
 def test_wrong_vector_length_is_an_error(sleeps):
     client = StubClient(vector_length=512)
     with pytest.raises(ValueError, match="length 512"):
-        VoyageEmbedder(client, MODEL, DIMS).embed(["a note"], "document")
+        VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["a note"], "document")
 
 
 def test_empty_input_makes_no_call(sleeps):
     client = StubClient()
-    assert VoyageEmbedder(client, MODEL, DIMS).embed([], "document") == []
+    assert VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed([], "document") == []
     assert client.calls == []
+
+
+def test_batches_run_at_the_same_time(sleeps):
+    # Three batches meet at the barrier; sent one after another, the first would wait alone
+    # until the timeout breaks the barrier and the call fails.
+    client = StubClient(barrier=threading.Barrier(3, timeout=5))
+    texts = [f"note {number}" for number in range(250)]
+    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
+    assert len(client.calls) == 3
+    assert positions(vectors) == list(range(250))
+
+
+def test_parallel_calls_never_exceed_the_setting(sleeps):
+    client = StubClient(hold_seconds=0.05)
+    texts = [f"note {number}" for number in range(500)]
+    vectors = VoyageEmbedder(client, MODEL, DIMS, 2).embed(texts, "document")
+    assert len(client.calls) == 5
+    assert client.most_in_flight == 2
+    assert positions(vectors) == list(range(500))
+
+
+def test_a_failed_batch_fails_the_whole_call(sleeps):
+    client = StubClient(fail_on="note 150")
+    texts = [f"note {number}" for number in range(250)]
+    with pytest.raises(voyage_errors.AuthenticationError):
+        VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
+    # A permanent error is not retried: one call per batch.
+    assert len(client.calls) == 3
 
 
 def test_real_provider_builds_the_voyage_embedder(real_provider, monkeypatch):
@@ -119,6 +183,7 @@ def test_real_provider_builds_the_voyage_embedder(real_provider, monkeypatch):
     assert isinstance(embedder, VoyageEmbedder)
     assert embedder.model == get_settings().embedding_model
     assert embedder.dims == get_settings().embedding_dims
+    assert embedder.parallel_calls == get_settings().embed_parallel_calls
 
 
 def test_real_provider_without_a_key_raises(real_provider, monkeypatch):

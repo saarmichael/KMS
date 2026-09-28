@@ -81,7 +81,10 @@ def get_embedder() -> Embedder:
                 timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
             )
             voyage_embedder = VoyageEmbedder(
-                client, settings.embedding_model, settings.embedding_dims
+                client,
+                settings.embedding_model,
+                settings.embedding_dims,
+                settings.embed_parallel_calls,
             )
             if settings.ai_cache_dir:
                 _embedder = RecordedEmbedder(voyage_embedder, Path(settings.ai_cache_dir))
