@@ -19,7 +19,7 @@ export default function FileActions({ asset, compact = false }: FileActionsProps
   const url = assetFileUrl(asset.id)
 
   if (compact) {
-    const iconLink = 'rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700'
+    const iconLink = 'rounded-md p-1.5 text-text-subtle hover:bg-surface-hover hover:text-text-muted'
     return (
       <div className="flex items-center gap-0.5">
         {/* noreferrer: the new tab gets no handle back to this page. */}
@@ -34,7 +34,7 @@ export default function FileActions({ asset, compact = false }: FileActionsProps
   }
 
   const buttonLink =
-    'flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50'
+    'flex items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-sm font-semibold text-text shadow-xs ring-1 ring-border-strong hover:bg-surface-hover'
   return (
     <div className="flex flex-wrap items-center gap-2">
       <a href={url} target="_blank" rel="noreferrer" className={buttonLink}>

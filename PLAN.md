@@ -71,6 +71,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D52 | Text in an image is its own search unit | An image's `visible_text` becomes its own unit, kind `visible_text`, written only when the text is not empty; the `metadata` unit keeps title, description and tags. A word read from the image is then reported as `snippet.kind` `"visible_text"` (`text` is the asset's `visible_text`, no offsets), filtered by `found_in=visible_text` (its own "Text in image" chip), and embedded on its own. Alternative: one unit and the label worked out at snippet time, which leaves the filter wrong. No migration (`kind` is plain text); existing collections are wiped and uploaded again. Phase 9, item 4 | decided (Sep 27) |
 | D53 | Cancel on the password prompt | The SPA's pages are sent with `Cache-Control: no-cache`, so the browser checks with the server, and so asks for the password, on every page load, instead of reusing a cached page whose API calls then all fail. Any `401` the UI still gets (Cancel pressed, or the password changed while a tab is open) replaces the app with a "Password needed" screen and a Reload button, which brings the browser's prompt back. `no-store` was weighed and gives nothing more; an inline error per component was the state that went unnoticed. Phase 9, item 6 | decided (Sep 28) |
 | D54 | Voyage batches in parallel | `VoyageEmbedder.embed` sends its batches of 100 at the same time from a thread pool of its own, `min(batches, EMBED_PARALLEL_CALLS)` threads, default 20 (a 2.5 MB text file's 19 batches in one round). One pool per call, not one shared by the app, so search's embed calls never wait behind an upload. Each batch keeps its own retries; a batch that still fails fails the whole call after the calls in flight finish, and vectors come back in input order as before. Recordings are unaffected (one per `embed()` call). The cap guards Voyage's tokens-per-minute limit on large uploads; requests per minute (2,000) are far off. Phase 9, item 7. Michael's addition | decided (Sep 28) |
+| D55 | Sift brand, palette and a light/dark theme | The Sift brand kit lives in `frontend/brand/` (logos, lockups, favicons, social image, the scripts that made them); the files the app serves are copied into `frontend/public/` (favicons, manifest, `og-image.png`) and `frontend/src/assets/` (the lockups). Two raw scales from the artwork, `sift` (orange) and `ink` (Bone to Night), and on top of them role colours (`page`, `surface`, `text`, `accent`, …) that components use; each role has a light value and a dark value under `[data-theme="dark"]` on `<html>`, so switching the attribute re-colours the page. Tailwind's `dark:` variant on every element and a flipped `ink` scale were weighed. Orange fills carry Ink text (about 5.4:1; white is about 2.9:1). Poppins, self-hosted through `@fontsource/poppins`. A toggle in the header's top corner switches the theme; the first visit follows the OS setting, a chosen theme is kept in `localStorage`, and an inline script in `index.html` sets it before the first paint. Link-preview tags point at the Railway URL; behind the password, previews show no image. Phase 9, item 8. Michael's addition (both themes and the toggle) | decided (Sep 28) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1312,6 +1313,63 @@ same time, batch sizes. No new file, no new dependency.
   minutes before. Its old asset row and recordings were deleted Sep 28 so that it runs for real.
   Measured Sep 28, real vendors, 20 calls, no retries: embedding 83.1 s one at a time, 25.9 s at 10,
   20.3 s at 20; whole file 93.6 s, 40.7 s, 31.4 s. Default kept at 20.
+
+8. **Sift brand, palette and light/dark theme (D55)**: the Sift logos, favicons and colours in the UI, both
+   themes with a toggle. On branch `sift-brand`. Asked Sep 28.
+
+| Stage | What | Status |
+| --- | --- | --- |
+| 1 | Brand: assets in place, Poppins, `sift`/`ink` scales and role colours (light), components on roles, lockup logo | done |
+| 2 | Dark theme: dark role values, the inline theme script, `theme.ts`, `ThemeToggle`, the logo per theme | approved |
+
+**Item 8 plan (approved Sep 28).**
+- *Palette.* `sift`: 50 `#FEF3EC`, 100 `#FDE3D3`, 200 `#FAC6A7`, 300 `#F6A274`, 400 `#F7874A`, 500 `#F0763A`, 600
+  `#D8602A`, 700 `#B34B20`, 800 `#8C3B1C`, 900 `#6B2F18`. `ink`: 50 `#F8F4EB`, 100 `#F6F1E7`, 200 `#ECE5D6`, 300
+  `#D3CCBD`, 400 `#A9A294`, 500 `#5E6773`, 600 `#33414F`, 700 `#2B3845`, 800 `#1B2631`, 900 `#0E151C`. Picked from
+  the artwork: sift 400/500, ink 50/100/200/400/600/700/800/900; the rest derived and checked in the browser.
+- *Roles (light / dark):* `page` ink-50 / ink-900; `surface` white / ink-800; `surface-hover` ink-100 / ink-700;
+  `border` ink-200 / ink-700; `border-strong` ink-300 / ink-600; `text` ink-900 / ink-100; `text-muted` ink-500 /
+  ink-400; `text-subtle` ink-400 / ink-500; `accent` and `accent-hover` sift-500 and sift-400 in both; `on-accent`
+  ink-800 in both; `accent-text` sift-700 / sift-400; `accent-muted` sift-300 in both; `accent-soft` and
+  `accent-soft-text` sift-100 and sift-800 / sift-900 and sift-200; `danger` and `danger-soft` red-700 and red-50 /
+  red-400 and red-950; `success` and `success-soft` green-700 and green-50 / green-400 and green-950; `meaning` and
+  `meaning-soft` teal-900 and teal-100 / teal-100 and teal-900. Dark values are tuned in the browser.
+- *Stage 1.* The kit moves from the repo root to `frontend/brand/`. Into `frontend/public/`: Sift's `favicon.svg`
+  (replaces Vite's), `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`,
+  `android-chrome-192x192.png`, `android-chrome-512x512.png`, `maskable-icon-512x512.png`, `site.webmanifest`,
+  `og-image.png`. Into `frontend/src/assets/`: `sift-lockup-compact-on-light.svg`,
+  `sift-lockup-compact-on-dark.svg` (and the full logos, see the amendment below). Deleted, unused: `public/icons.svg`,
+  `src/assets/hero.png`, `src/assets/vite.svg`. `index.html`: icon, manifest, `theme-color`, og and twitter tags
+  (`https://api-production-6776.up.railway.app/og-image.png`). New dependency `@fontsource/poppins`, weights
+  400/500/600/700 imported in `main.tsx`; `--font-sans` is Poppins. `index.css`: the scales and the roles' light
+  values. Every component moves from `gray-*`, `indigo-*`, `red-*`, `green-*`, `teal-*` classes to the roles;
+  orange fills take `on-accent` text. `CollectionView.tsx`: the logo is an `<img alt="Sift">` of the full lockup on
+  the home page and the compact lockup with results; `StackIcon` is removed from `icons.tsx`.
+  Amended Sep 28 (Michael): the home page shows the full logo instead, the word under the sifter
+  (`sift-logo-on-light-800.png` and `-on-dark-800.png` in `src/assets/`; the 744 KB SVG is too heavy), `h-64`; the
+  compact lockup stays above results. The home search box and the filters under it widen from `max-w-2xl` to
+  `max-w-3xl`, so the placeholder fits in Poppins. Phone width is not a concern. The home layout sits higher
+  (no extra top padding, `gap-5`, `pb-2`) so the filters panel fits below it; nothing shrinks when it opens.
+  Amended Sep 28 (Michael): Browse all uses the compact layout (`compact` is `activeSearch !== null ||
+  browsing`), so the cards start near the top; the logo becomes a `<button aria-label="Home">` that clears the
+  search and the list; Browse all no longer reads "Hide all", and a "Hide all" button right-aligned above the
+  list does the same as the logo. Every switch between the layouts animates with the
+  browser's View Transitions API: `changeLayout(update: () => void): void` in `CollectionView.tsx` runs the state
+  change in `document.startViewTransition` with `flushSync`, or directly when the API is missing or reduced motion
+  is set; never throws. `index.css` names the logo (`sift-logo`) and the search box (`search-box`), sets about
+  400 ms, and keeps the logo's proportions while it cross-fades. `framer-motion` and hand-written FLIP were weighed.
+- *Stage 2.* `index.css`: the dark values under `[data-theme="dark"]`. `index.html`: an inline script sets
+  `data-theme` on `<html>` before the first paint, from `localStorage` key `sift-theme`, else the OS setting. New
+  `src/theme.ts`: `type Theme = 'light' | 'dark'`; `currentTheme(): Theme` reads `data-theme` (never throws);
+  `applyTheme(theme: Theme): void` sets `data-theme`, saves the choice (a storage error is ignored) and updates
+  `theme-color`. New `components/ThemeToggle.tsx`: `ThemeToggle({ theme, onToggle })`, a round icon button, moon
+  in light, sun in dark, labelled "Switch to dark theme" / "Switch to light theme". `icons.tsx`: `SunIcon`,
+  `MoonIcon` (Heroicons). `App.tsx`: `theme` state from `currentTheme()`, the toggle at the header's far right,
+  `theme` passed to `CollectionView`, which picks the on-light or on-dark lockup.
+- *Tests:* none automated; checked in Chrome per stage (home and compact bar at desktop and phone widths, buttons,
+  dialogs, uploads, chips, closeness bars, the favicon; in Stage 2 the same in dark, the toggle, the choice kept
+  over a reload, the OS setting when nothing is saved, no light flash on a dark load, the password screen in both),
+  plus `npm run build` and `npm run lint`.
 
 Each is its own gate; each can be skipped without touching anything else.
 

@@ -8,10 +8,10 @@ type Closeness = {
 
 // Checked from the top: the first step whose threshold the score reaches wins.
 const STEPS: { minimumScore: number; closeness: Closeness }[] = [
-  { minimumScore: 0.75, closeness: { label: 'Close match', barClass: 'bg-indigo-600' } },
-  { minimumScore: 0.5, closeness: { label: 'Good match', barClass: 'bg-indigo-400' } },
-  { minimumScore: 0.25, closeness: { label: 'Partial match', barClass: 'bg-indigo-200' } },
-  { minimumScore: 0, closeness: { label: 'Distant match', barClass: 'bg-gray-200' } },
+  { minimumScore: 0.75, closeness: { label: 'Close match', barClass: 'bg-accent' } },
+  { minimumScore: 0.5, closeness: { label: 'Good match', barClass: 'bg-accent-muted' } },
+  { minimumScore: 0.25, closeness: { label: 'Partial match', barClass: 'bg-accent-soft' } },
+  { minimumScore: 0, closeness: { label: 'Distant match', barClass: 'bg-border' } },
 ]
 
 export function closeness(score: number): Closeness {

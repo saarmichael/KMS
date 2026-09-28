@@ -50,26 +50,26 @@ export default function AssetTile({ asset, onRetry, onOpen }: AssetTileProps) {
   return (
     <li
       onClick={() => onOpen(asset)}
-      className="flex cursor-pointer gap-4 rounded-xl bg-white p-3 shadow-xs ring-1 ring-gray-200 transition-shadow hover:shadow-md hover:ring-gray-300"
+      className="flex cursor-pointer gap-4 rounded-xl bg-surface p-3 shadow-xs ring-1 ring-border transition-shadow hover:shadow-md hover:ring-border-strong"
     >
       {asset.asset_type === 'image' ? (
         // The file endpoint serves the original; CSS scales it into the square.
         <img
           src={assetFileUrl(asset.id)}
           alt=""
-          className="size-24 shrink-0 rounded-lg bg-gray-100 object-cover"
+          className="size-24 shrink-0 rounded-lg bg-surface-hover object-cover"
         />
       ) : (
-        <div className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
-          <DocumentIcon className="size-10 text-indigo-400" />
+        <div className="flex size-24 shrink-0 items-center justify-center rounded-lg bg-accent-soft">
+          <DocumentIcon className="size-10 text-accent" />
         </div>
       )}
 
       <div className="min-w-0 flex-1 py-1">
         <div className="flex items-start gap-3">
           {/* A real button, so the keyboard can reach the tile; the click bubbles up to the tile. */}
-          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
-            <button type="button" className="max-w-full truncate text-left hover:text-indigo-700">
+          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
+            <button type="button" className="max-w-full truncate text-left hover:text-accent-text">
               {title}
             </button>
           </h3>
@@ -77,16 +77,16 @@ export default function AssetTile({ asset, onRetry, onOpen }: AssetTileProps) {
           <StatusBadge status={asset.status} />
         </div>
 
-        {metadata && <p className="truncate text-xs text-gray-500">{asset.filename}</p>}
+        {metadata && <p className="truncate text-xs text-text-muted">{asset.filename}</p>}
         {asset.aliases.length > 0 && (
-          <p className="truncate text-xs text-gray-500">also uploaded as {asset.aliases.join(', ')}</p>
+          <p className="truncate text-xs text-text-muted">also uploaded as {asset.aliases.join(', ')}</p>
         )}
 
-        {metadata && <p className="mt-1.5 line-clamp-2 text-sm text-gray-600">{metadata.description}</p>}
+        {metadata && <p className="mt-1.5 line-clamp-2 text-sm text-text-muted">{metadata.description}</p>}
         {metadata && metadata.tags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {metadata.tags.slice(0, TAGS_SHOWN).map((tag) => (
-              <span key={tag} className="rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+              <span key={tag} className="rounded-md bg-surface-hover px-1.5 py-0.5 text-xs text-text-muted">
                 {tag}
               </span>
             ))}
@@ -94,13 +94,13 @@ export default function AssetTile({ asset, onRetry, onOpen }: AssetTileProps) {
         )}
 
         {asset.status === 'failed' && (
-          <div className="mt-2 flex items-start gap-3 rounded-lg bg-red-50 px-3 py-2">
-            <p className="flex-1 text-sm text-red-700">{retryError ?? asset.error}</p>
+          <div className="mt-2 flex items-start gap-3 rounded-lg bg-danger-soft px-3 py-2">
+            <p className="flex-1 text-sm text-danger">{retryError ?? asset.error}</p>
             <button
               type="button"
               onClick={handleRetry}
               disabled={retrying}
-              className="flex shrink-0 items-center gap-1.5 rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-xs ring-1 ring-red-200 hover:bg-red-50 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1.5 rounded-md bg-surface px-2.5 py-1 text-xs font-semibold text-danger shadow-xs ring-1 ring-danger/40 hover:bg-danger-soft disabled:opacity-50"
             >
               <RetryIcon className="size-3.5" />
               {retrying ? 'Retrying…' : 'Retry'}
@@ -108,7 +108,7 @@ export default function AssetTile({ asset, onRetry, onOpen }: AssetTileProps) {
           </div>
         )}
 
-        <p className="mt-2 text-xs text-gray-400">
+        <p className="mt-2 text-xs text-text-subtle">
           {formatBytes(asset.size_bytes)} · {formatAge(asset.created_at)}
         </p>
       </div>

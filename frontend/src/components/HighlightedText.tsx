@@ -26,7 +26,7 @@ export default function HighlightedText({ text, query, firstMarkRef }: Highlight
           <mark
             key={index}
             ref={index === 1 ? firstMarkRef : undefined}
-            className="rounded-sm bg-indigo-100 px-0.5 text-indigo-900"
+            className="rounded-sm bg-accent-soft px-0.5 text-accent-soft-text"
           >
             {piece}
           </mark>

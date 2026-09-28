@@ -8,22 +8,24 @@
 //   Retry all failed -> handleRetryAll() -> retryAsset() per failed file, in parallel
 //     -> the returned assets replace the old ones; `retryAllError` if any could not be retried
 //   <AssetTile onOpen> -> onOpen(asset), passed up to CollectionView, which shows the detail dialog
+//   Hide all -> onHide(), passed up to CollectionView, which goes back to the home page
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, listAssets, retryAsset } from '../api/client'
 import type { Asset } from '../api/types'
 import AssetTile from './AssetTile'
-import { ExclamationIcon, FolderIcon, RetryIcon } from './icons'
+import { ChevronDownIcon, ExclamationIcon, FolderIcon, RetryIcon } from './icons'
 import StatusMessage from './StatusMessage'
 
 type CollectionFilesProps = {
   collection: string
   filesVersion: number
   onOpen: (asset: Asset) => void
+  onHide: () => void
 }
 
 const POLL_INTERVAL_MS = 2000
 
-export default function CollectionFiles({ collection, filesVersion, onOpen }: CollectionFilesProps) {
+export default function CollectionFiles({ collection, filesVersion, onOpen, onHide }: CollectionFilesProps) {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [retryingAll, setRetryingAll] = useState(false)
@@ -105,33 +107,54 @@ export default function CollectionFiles({ collection, filesVersion, onOpen }: Co
     <button
       type="button"
       onClick={handleTryAgain}
-      className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+      className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover"
     >
       Try again
     </button>
   )
 
+  const hideButton = (
+    <button
+      type="button"
+      onClick={onHide}
+      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-text-muted hover:bg-surface-hover hover:text-accent-text"
+    >
+      Hide all
+      <ChevronDownIcon className="size-4 rotate-180" />
+    </button>
+  )
+
+  // Without a summary line (loading, a failed load, no files) there is nothing to share a line with,
+  // so Hide all gets a row of its own.
+  const hideRow = <div className="flex justify-end">{hideButton}</div>
+
   function renderFiles() {
     if (assets === null) {
       if (loadError) {
         return (
-          <StatusMessage
-            icon={<ExclamationIcon className="size-12" />}
-            title="Could not load files"
-            text={loadError}
-            action={tryAgainButton}
-          />
+          <>
+            {hideRow}
+            <StatusMessage
+              icon={<ExclamationIcon className="size-12" />}
+              title="Could not load files"
+              text={loadError}
+              action={tryAgainButton}
+            />
+          </>
         )
       }
-      return null
+      return hideRow
     }
     if (assets.length === 0) {
       return (
-        <StatusMessage
-          icon={<FolderIcon className="size-12" />}
-          title="No files yet"
-          text="Drop files anywhere on the page, or press Upload, to add the first ones."
-        />
+        <>
+          {hideRow}
+          <StatusMessage
+            icon={<FolderIcon className="size-12" />}
+            title="No files yet"
+            text="Drop files anywhere on the page, or press Upload, to add the first ones."
+          />
+        </>
       )
     }
 
@@ -142,36 +165,39 @@ export default function CollectionFiles({ collection, filesVersion, onOpen }: Co
     return (
       <>
         {loadError && (
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-danger-soft px-4 py-2 text-sm text-danger">
             <span>Could not refresh the list: {loadError}</span>
-            <button type="button" onClick={handleTryAgain} className="font-semibold hover:text-red-600">
+            <button type="button" onClick={handleTryAgain} className="font-semibold hover:text-danger/80">
               Try again
             </button>
           </div>
         )}
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-text-muted">
             {assets.length === 1 ? '1 file' : `${assets.length} files`}
             {pendingCount > 0 && ` · ${pendingCount} pending`}
             {processingCount > 0 && ` · ${processingCount} processing`}
             {failedCount > 0 && ` · ${failedCount} failed`}
           </p>
-          {failedCount > 0 && (
-            <button
-              type="button"
-              onClick={handleRetryAll}
-              disabled={retryingAll}
-              className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RetryIcon className={`size-4 ${retryingAll ? 'animate-spin' : ''}`} />
-              {retryingAll ? 'Retrying…' : `Retry all failed (${failedCount})`}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {failedCount > 0 && (
+              <button
+                type="button"
+                onClick={handleRetryAll}
+                disabled={retryingAll}
+                className="flex items-center gap-1.5 rounded-lg bg-surface px-3 py-1.5 text-sm font-semibold text-text shadow-xs ring-1 ring-border-strong hover:bg-surface-hover disabled:opacity-50"
+              >
+                <RetryIcon className={`size-4 ${retryingAll ? 'animate-spin' : ''}`} />
+                {retryingAll ? 'Retrying…' : `Retry all failed (${failedCount})`}
+              </button>
+            )}
+            {hideButton}
+          </div>
         </div>
         {retryAllError && (
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-danger-soft px-4 py-2 text-sm text-danger">
             <span>{retryAllError}</span>
-            <button type="button" onClick={() => setRetryAllError(null)} className="font-semibold hover:text-red-600">
+            <button type="button" onClick={() => setRetryAllError(null)} className="font-semibold hover:text-danger/80">
               Dismiss
             </button>
           </div>

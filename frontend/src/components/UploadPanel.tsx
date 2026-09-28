@@ -55,15 +55,15 @@ export default function UploadPanel({ uploads, onClose }: UploadPanelProps) {
   return (
     <section
       aria-label="Uploads"
-      className="fixed right-4 bottom-4 z-40 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-200"
+      className="fixed right-4 bottom-4 z-40 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl bg-surface shadow-xl ring-1 ring-border"
     >
-      <div className="flex items-center gap-2 bg-gray-900 px-4 py-3 text-white">
+      <div className="flex items-center gap-2 bg-ink-900 px-4 py-3 text-ink-50">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
         <button
           type="button"
           onClick={() => setFolded(!folded)}
           aria-label={folded ? 'Show uploads' : 'Hide uploads'}
-          className="rounded-md p-1 text-gray-300 hover:bg-white/10 hover:text-white"
+          className="rounded-md p-1 text-ink-300 hover:bg-white/10 hover:text-ink-50"
         >
           <ChevronDownIcon className={`size-4 transition-transform ${folded ? 'rotate-180' : ''}`} />
         </button>
@@ -74,52 +74,52 @@ export default function UploadPanel({ uploads, onClose }: UploadPanelProps) {
           disabled={uploadingCount > 0}
           aria-label="Close"
           title={uploadingCount > 0 ? 'Available once every upload has ended' : 'Close'}
-          className="rounded-md p-1 text-gray-300 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
+          className="rounded-md p-1 text-ink-300 hover:bg-white/10 hover:text-ink-50 disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <CloseIcon className="size-4" />
         </button>
       </div>
 
       {uploadingCount > 0 && (
-        <div className="border-b border-gray-100 px-4 py-2.5">
-          <div className="flex justify-between text-xs text-gray-500">
+        <div className="border-b border-border px-4 py-2.5">
+          <div className="flex justify-between text-xs text-text-muted">
             <span>
               {finishedCount} of {uploads.length} done
             </span>
             <span>{Math.round(overallFraction * 100)}%</span>
           </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100">
-            <div className="h-full rounded-full bg-indigo-600 transition-[width]" style={{ width: `${overallFraction * 100}%` }} />
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-hover">
+            <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${overallFraction * 100}%` }} />
           </div>
         </div>
       )}
 
       {!folded && (
-        <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+        <ul className="max-h-72 divide-y divide-border overflow-y-auto">
           {uploads.map((upload) => (
             <li key={upload.id} className="px-4 py-2.5">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-900">{upload.file.name}</p>
-                  <p className="truncate text-xs text-gray-500">To {upload.collection}</p>
+                  <p className="truncate text-sm font-medium text-text">{upload.file.name}</p>
+                  <p className="truncate text-xs text-text-muted">To {upload.collection}</p>
                 </div>
                 {upload.state === 'uploading' && (
-                  <span className="text-xs text-gray-500 tabular-nums">{Math.round(upload.progress * 100)}%</span>
+                  <span className="text-xs text-text-muted tabular-nums">{Math.round(upload.progress * 100)}%</span>
                 )}
-                {upload.state === 'done' && <CheckIcon className="size-5 shrink-0 text-green-600" />}
-                {upload.state === 'duplicate' && <CheckIcon className="size-5 shrink-0 text-gray-400" />}
-                {upload.state === 'error' && <ExclamationIcon className="size-5 shrink-0 text-red-600" />}
+                {upload.state === 'done' && <CheckIcon className="size-5 shrink-0 text-success" />}
+                {upload.state === 'duplicate' && <CheckIcon className="size-5 shrink-0 text-text-subtle" />}
+                {upload.state === 'error' && <ExclamationIcon className="size-5 shrink-0 text-danger" />}
               </div>
               {upload.state === 'uploading' && (
-                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-100">
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-hover">
                   <div
-                    className="h-full rounded-full bg-indigo-500 transition-[width]"
+                    className="h-full rounded-full bg-accent transition-[width]"
                     style={{ width: `${upload.progress * 100}%` }}
                   />
                 </div>
               )}
               {upload.message && (
-                <p className={`mt-1 text-xs ${upload.state === 'error' ? 'text-red-700' : 'text-gray-500'}`}>
+                <p className={`mt-1 text-xs ${upload.state === 'error' ? 'text-danger' : 'text-text-muted'}`}>
                   {upload.message}
                 </p>
               )}

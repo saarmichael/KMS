@@ -37,20 +37,20 @@ export default function UploadDialog({ open, collection, onFiles, onClose }: Upl
     <dialog
       ref={dialog}
       onClose={onClose}
-      className="m-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/40 backdrop:backdrop-blur-sm"
+      className="m-auto w-full max-w-lg rounded-2xl bg-surface p-6 shadow-xl backdrop:bg-ink-900/40 backdrop:backdrop-blur-sm"
     >
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Upload files</h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            To <span className="font-medium text-gray-900">{collection}</span>
+          <h2 className="text-lg font-semibold text-text">Upload files</h2>
+          <p className="mt-0.5 text-sm text-text-muted">
+            To <span className="font-medium text-text">{collection}</span>
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-md p-1 text-text-subtle hover:bg-surface-hover hover:text-text-muted"
         >
           <CloseIcon className="size-5" />
         </button>

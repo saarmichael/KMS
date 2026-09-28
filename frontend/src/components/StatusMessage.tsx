@@ -12,9 +12,9 @@ type StatusMessageProps = {
 export default function StatusMessage({ icon, title, text, action }: StatusMessageProps) {
   return (
     <div className="flex flex-col items-center px-6 py-20 text-center">
-      <div className="text-gray-300">{icon}</div>
-      <h2 className="mt-4 text-base font-semibold text-gray-900">{title}</h2>
-      {text && <p className="mt-1 max-w-sm text-sm text-gray-500">{text}</p>}
+      <div className="text-text-subtle">{icon}</div>
+      <h2 className="mt-4 text-base font-semibold text-text">{title}</h2>
+      {text && <p className="mt-1 max-w-sm text-sm text-text-muted">{text}</p>}
       {action && <div className="mt-6">{action}</div>}
     </div>
   )

@@ -108,12 +108,12 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
 
   function renderText() {
     if (textError) {
-      return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{textError}</p>
+      return <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{textError}</p>
     }
     if (text === null) {
       return (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <SpinnerIcon className="size-4 text-indigo-600" />
+        <div className="flex items-center gap-2 text-sm text-text-muted">
+          <SpinnerIcon className="size-4 text-accent-text" />
           Loading the file…
         </div>
       )
@@ -147,7 +147,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
     return (
       <pre
         ref={textBox}
-        className="relative max-h-[50vh] overflow-auto rounded-lg bg-gray-50 p-4 font-mono text-sm whitespace-pre-wrap text-gray-800 ring-1 ring-gray-200">
+        className="relative max-h-[50vh] overflow-auto rounded-lg bg-page p-4 font-mono text-sm whitespace-pre-wrap text-text ring-1 ring-border">
         {content}
       </pre>
     )
@@ -158,20 +158,20 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
       ref={dialog}
       onClose={onClose}
       onClick={handleDialogClick}
-      className="m-auto max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-xl backdrop:bg-gray-900/40 backdrop:backdrop-blur-sm"
+      className="m-auto max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-surface shadow-xl backdrop:bg-ink-900/40 backdrop:backdrop-blur-sm"
     >
       <div className="space-y-6 p-6">
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="truncate text-lg font-semibold text-gray-900">
+              <h2 className="truncate text-lg font-semibold text-text">
                 <HighlightedText text={title} query={queryText} />
               </h2>
               <StatusBadge status={asset.status} />
             </div>
             {/* Without metadata the title already is the filename. */}
             {metadata && (
-              <p className="truncate text-sm text-gray-500">
+              <p className="truncate text-sm text-text-muted">
                 <ClosestSentenceText text={asset.filename} query={queryText} sentence={filenameSentence} />
               </p>
             )}
@@ -180,7 +180,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-md p-1.5 text-text-subtle hover:bg-surface-hover hover:text-text-muted"
           >
             <CloseIcon className="size-5" />
           </button>
@@ -193,17 +193,17 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
           <img
             src={assetFileUrl(asset.id)}
             alt={title}
-            className="mx-auto max-h-[60vh] max-w-full rounded-lg bg-gray-100"
+            className="mx-auto max-h-[60vh] max-w-full rounded-lg bg-surface-hover"
           />
         ) : (
           renderText()
         )}
 
         {asset.status === 'failed' && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{asset.error}</p>
+          <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{asset.error}</p>
         )}
         {(asset.status === 'pending' || asset.status === 'processing') && (
-          <p className="text-sm text-gray-500">The description and tags appear once processing finishes.</p>
+          <p className="text-sm text-text-muted">The description and tags appear once processing finishes.</p>
         )}
 
         <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
@@ -216,7 +216,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
                 <Field label="Tags" wide>
                   <div className="flex flex-wrap gap-1.5">
                     {metadata.tags.map((tag) => (
-                      <span key={tag} className="rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                      <span key={tag} className="rounded-md bg-surface-hover px-1.5 py-0.5 text-xs text-text-muted">
                         <HighlightedText text={tag} query={queryText} />
                       </span>
                     ))}
@@ -227,7 +227,7 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
                 <Field label="Visible text" wide>
                   <div
                     ref={visibleTextBox}
-                    className="relative max-h-60 overflow-auto rounded-lg bg-gray-50 px-3 py-2 font-mono text-xs whitespace-pre-wrap ring-1 ring-gray-200"
+                    className="relative max-h-60 overflow-auto rounded-lg bg-page px-3 py-2 font-mono text-xs whitespace-pre-wrap ring-1 ring-border"
                   >
                     <ClosestSentenceText
                       text={metadata.visible_text}
@@ -246,15 +246,15 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
           <Field label="File">
             <HighlightedText text={asset.filename} query={queryText} />
             {asset.aliases.length > 0 && (
-              <span className="block text-gray-500">also uploaded as {asset.aliases.join(', ')}</span>
+              <span className="block text-text-muted">also uploaded as {asset.aliases.join(', ')}</span>
             )}
-            <span className="block text-gray-500">
+            <span className="block text-text-muted">
               {asset.mime} · {formatBytes(asset.size_bytes)}
             </span>
           </Field>
           <Field label="Uploaded">
             {new Date(asset.created_at).toLocaleString()}
-            <span className="block text-gray-500">{formatAge(asset.created_at)}</span>
+            <span className="block text-text-muted">{formatAge(asset.created_at)}</span>
           </Field>
         </dl>
       </div>
@@ -266,8 +266,8 @@ export default function AssetDetailDialog({ asset, snippet, query, onClose }: As
 function Field({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) {
   return (
     <div className={wide ? 'sm:col-span-2' : ''}>
-      <dt className="text-xs font-medium tracking-wide text-gray-500 uppercase">{label}</dt>
-      <dd className="mt-1 text-sm text-gray-800">{children}</dd>
+      <dt className="text-xs font-medium tracking-wide text-text-muted uppercase">{label}</dt>
+      <dd className="mt-1 text-sm text-text">{children}</dd>
     </div>
   )
 }

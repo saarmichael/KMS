@@ -5,7 +5,7 @@ import { ExclamationIcon } from './icons'
 
 export default function PasswordNeeded() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <StatusMessage
         icon={<ExclamationIcon className="size-12" />}
         title="Password needed"
@@ -14,7 +14,7 @@ export default function PasswordNeeded() {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+            className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover"
           >
             Reload
           </button>

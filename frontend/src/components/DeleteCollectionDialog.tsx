@@ -55,19 +55,19 @@ export default function DeleteCollectionDialog({ name, assetCount, open, onConfi
     <dialog
       ref={dialog}
       onClose={onClose}
-      className="m-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/40 backdrop:backdrop-blur-sm"
+      className="m-auto w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl backdrop:bg-ink-900/40 backdrop:backdrop-blur-sm"
     >
       <div className="flex gap-4">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-red-100">
-          <TrashIcon className="size-5 text-red-600" />
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft">
+          <TrashIcon className="size-5 text-danger" />
         </div>
         <div>
-          <h2 className="text-base font-semibold text-gray-900">Delete collection</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Delete <span className="font-semibold text-gray-900">{name}</span>? {filesSentence} This cannot be
+          <h2 className="text-base font-semibold text-text">Delete collection</h2>
+          <p className="mt-2 text-sm text-text-muted">
+            Delete <span className="font-semibold text-text">{name}</span>? {filesSentence} This cannot be
             undone.
           </p>
-          {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
         </div>
       </div>
       <div className="mt-6 flex justify-end gap-3">
@@ -75,7 +75,7 @@ export default function DeleteCollectionDialog({ name, assetCount, open, onConfi
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          className="rounded-lg bg-surface px-3 py-2 text-sm font-semibold text-text shadow-xs ring-1 ring-border-strong hover:bg-surface-hover disabled:opacity-50"
         >
           Cancel
         </button>
@@ -83,7 +83,7 @@ export default function DeleteCollectionDialog({ name, assetCount, open, onConfi
           type="button"
           onClick={handleDelete}
           disabled={busy}
-          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 disabled:opacity-50"
+          className="rounded-lg bg-danger px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-danger/90 disabled:opacity-50"
         >
           {busy ? 'Deleting…' : 'Delete'}
         </button>

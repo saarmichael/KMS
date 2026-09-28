@@ -9,17 +9,17 @@ const LABELS: Record<AssetStatus, string> = {
 }
 
 const PILL_COLOURS: Record<AssetStatus, string> = {
-  pending: 'bg-gray-100 text-gray-600',
-  processing: 'bg-indigo-50 text-indigo-700',
-  ready: 'bg-green-50 text-green-700',
-  failed: 'bg-red-50 text-red-700',
+  pending: 'bg-surface-hover text-text-muted',
+  processing: 'bg-accent-soft text-accent-text',
+  ready: 'bg-success-soft text-success',
+  failed: 'bg-danger-soft text-danger',
 }
 
 const DOT_COLOURS: Record<AssetStatus, string> = {
-  pending: 'bg-gray-400',
-  processing: 'bg-indigo-500 animate-pulse',
-  ready: 'bg-green-500',
-  failed: 'bg-red-500',
+  pending: 'bg-text-subtle',
+  processing: 'bg-accent animate-pulse',
+  ready: 'bg-success',
+  failed: 'bg-danger',
 }
 
 export default function StatusBadge({ status }: { status: AssetStatus }) {

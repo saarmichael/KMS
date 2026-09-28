@@ -97,27 +97,27 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
     <li
       title={match.label}
       onClick={() => onOpen(asset, snippet, query)}
-      className="relative flex cursor-pointer gap-4 overflow-hidden rounded-xl bg-white p-3 pl-5 shadow-xs ring-1 ring-gray-200 transition-shadow hover:shadow-md hover:ring-gray-300"
+      className="relative flex cursor-pointer gap-4 overflow-hidden rounded-xl bg-surface p-3 pl-5 shadow-xs ring-1 ring-border transition-shadow hover:shadow-md hover:ring-border-strong"
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${match.barClass}`} aria-hidden="true" />
 
       {asset.asset_type === 'image' ? (
-        <img src={assetFileUrl(asset.id)} alt="" className="size-28 shrink-0 rounded-lg bg-gray-100 object-cover" />
+        <img src={assetFileUrl(asset.id)} alt="" className="size-28 shrink-0 rounded-lg bg-surface-hover object-cover" />
       ) : (
-        <div className="flex size-28 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
-          <DocumentIcon className="size-12 text-indigo-400" />
+        <div className="flex size-28 shrink-0 items-center justify-center rounded-lg bg-accent-soft">
+          <DocumentIcon className="size-12 text-accent" />
         </div>
       )}
 
       <div className="min-w-0 flex-1 py-1">
-        <h3 className="truncate text-sm font-semibold text-gray-900">
-          <button type="button" className="max-w-full truncate text-left hover:text-indigo-700">
+        <h3 className="truncate text-sm font-semibold text-text">
+          <button type="button" className="max-w-full truncate text-left hover:text-accent-text">
             {title}
           </button>
         </h3>
-        <p className="truncate text-xs text-gray-500">
+        <p className="truncate text-xs text-text-muted">
           Found in{' '}
-          <span className="font-medium text-gray-700">
+          <span className="font-medium text-text-muted">
             <HighlightedText text={asset.filename} query={query} />
           </span>
           {asset.aliases.length > 0 && (
@@ -131,23 +131,23 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
           <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${MATCH_COLOURS[result.match]}`}>
             {MATCH_LABELS[result.match]}
           </span>
-          <p className="text-xs font-medium tracking-wide text-indigo-600 uppercase">{SNIPPET_LABELS[snippet.kind]}</p>
+          <p className="text-xs font-medium tracking-wide text-accent-text uppercase">{SNIPPET_LABELS[snippet.kind]}</p>
         </div>
         {/* Text read from an image is set in monospace, as it is in the dialog's visible-text box. */}
         <p
-          className={`mt-0.5 line-clamp-3 text-gray-700 ${snippet.kind === 'visible_text' ? 'font-mono text-xs' : 'text-sm'}`}
+          className={`mt-0.5 line-clamp-3 text-text-muted ${snippet.kind === 'visible_text' ? 'font-mono text-xs' : 'text-sm'}`}
         >
           <ClosestSentenceText text={previewText} query={query} sentence={previewSentence} />
         </p>
         {moreMatches > 0 && (
-          <p className="mt-1 text-xs font-medium text-indigo-600">
+          <p className="mt-1 text-xs font-medium text-accent-text">
             {moreMatches} more {moreMatches === 1 ? 'match' : 'matches'} in this passage →
           </p>
         )}
         {imageTextExcerpt && (
           <>
-            <p className="mt-2 text-xs font-medium tracking-wide text-indigo-600 uppercase">Text in the image</p>
-            <p className="mt-0.5 line-clamp-2 font-mono text-xs text-gray-700">
+            <p className="mt-2 text-xs font-medium tracking-wide text-accent-text uppercase">Text in the image</p>
+            <p className="mt-0.5 line-clamp-2 font-mono text-xs text-text-muted">
               <HighlightedText text={imageTextExcerpt} query={query} />
             </p>
           </>

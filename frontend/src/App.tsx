@@ -155,7 +155,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleTryAgain}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover"
             >
               Try again
             </button>
@@ -164,7 +164,7 @@ export default function App() {
       )
     }
     if (collections === null) {
-      return <StatusMessage icon={<SpinnerIcon className="size-8 text-indigo-600" />} title="Loading collections…" />
+      return <StatusMessage icon={<SpinnerIcon className="size-8 text-accent-text" />} title="Loading collections…" />
     }
     if (!selectedCollection) {
       return (
@@ -190,8 +190,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
+    <div className="min-h-screen bg-page">
+      <header className="border-b border-border bg-surface">
         <div className="mx-auto flex min-h-16 max-w-5xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           {collections !== null && (
             <>
@@ -202,7 +202,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setCreating(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50"
+                  className="flex items-center gap-1.5 rounded-lg bg-surface px-3 py-2 text-sm font-semibold text-text shadow-xs ring-1 ring-border-strong hover:bg-surface-hover"
                 >
                   <PlusIcon className="size-4" />
                   New
@@ -212,7 +212,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setUploadDialogOpen(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+                  className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover"
                 >
                   <UploadIcon className="size-4" />
                   Upload
@@ -222,7 +222,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setDeleting(true)}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600"
+                  className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-danger-soft hover:text-danger/80"
                 >
                   <TrashIcon className="size-4" />
                   Delete

@@ -20,12 +20,12 @@ export const MATCH_LABELS: Record<MatchKind, string> = {
 }
 
 export const MATCH_COLOURS: Record<MatchKind, string> = {
-  exact: 'bg-indigo-600 text-white',
-  partial: 'bg-indigo-100 text-indigo-800',
-  semantic: 'bg-teal-100 text-teal-800',
+  exact: 'bg-accent text-on-accent',
+  partial: 'bg-accent-soft text-accent-soft-text',
+  semantic: 'bg-meaning-soft text-meaning',
 }
 
 // The sentence of a passage matched by meaning that is closest to the query, marked in the semantic colour
 // on the card and in the detail dialog.
-export const CLOSEST_SENTENCE_CLASS = 'rounded-sm bg-teal-100 px-0.5 text-teal-900'
+export const CLOSEST_SENTENCE_CLASS = 'rounded-sm bg-meaning-soft px-0.5 text-meaning'
 export const CLOSEST_SENTENCE_TITLE = 'Closest in meaning to your query'

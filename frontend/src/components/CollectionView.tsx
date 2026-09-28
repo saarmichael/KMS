@@ -19,6 +19,7 @@
 //     only hidden, so opening it or leaving a search needs no reload
 //   a tile or a result card -> handleOpen(asset, snippet, query) -> `detail` state -> <AssetDetailDialog>
 import { useCallback, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { Asset, SearchView, Snippet } from '../api/types'
 import { DEFAULT_VIEW } from '../searchView'
 import AssetDetailDialog from './AssetDetailDialog'
@@ -26,7 +27,11 @@ import CollectionFiles from './CollectionFiles'
 import SearchBar from './SearchBar'
 import SearchOptions from './SearchOptions'
 import SearchResults from './SearchResults'
-import { AdjustmentsIcon, ChevronDownIcon, StackIcon } from './icons'
+import { AdjustmentsIcon, ChevronDownIcon } from './icons'
+// The Sift logo: on the home page the full logo, the word under the sifter; in the bar above results the
+// compact mark and word side by side, which is made for small heights.
+import logoOnLight from '../assets/sift-logo-on-light-800.png'
+import lockupCompactOnLight from '../assets/sift-lockup-compact-on-light.svg'
 
 type CollectionViewProps = {
   collection: string
@@ -55,22 +60,50 @@ export default function CollectionView({ collection, filesVersion }: CollectionV
   const [browsing, setBrowsing] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
+  // Switches between the home layout and the compact one with an animation: the browser snapshots the page,
+  // `update` changes the state, and the logo and the search box (named in index.css) glide to their new
+  // places. flushSync puts the new layout on the page before the browser takes its second snapshot. Without
+  // the API, or when the user asked for less motion, the change is instant.
+  function changeLayout(update: () => void) {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!document.startViewTransition || reduceMotion) {
+      update()
+      return
+    }
+    document.startViewTransition(() => flushSync(update))
+  }
+
   // Every search gets a new id. Used as the results' key, it gives each search a fresh component:
   // page 1, nothing left over, and a late answer from an earlier search is dropped with the old one.
   function handleSearch(query: string) {
-    setActiveSearch((previous) => ({ query, id: (previous?.id ?? 0) + 1 }))
-    setSearching(true)
+    changeLayout(() => {
+      setActiveSearch((previous) => ({ query, id: (previous?.id ?? 0) + 1 }))
+      setSearching(true)
+    })
   }
 
   function handleCancel() {
-    setActiveSearch(null)
-    setSearching(false)
+    changeLayout(() => {
+      setActiveSearch(null)
+      setSearching(false)
+    })
   }
 
   // Leaves the results for the full list of files, opened under the filters.
   function handleBackToFiles() {
-    setActiveSearch(null)
-    setBrowsing(true)
+    changeLayout(() => {
+      setActiveSearch(null)
+      setBrowsing(true)
+    })
+  }
+
+  // The logo leads back to the empty home page, as a site's logo usually does.
+  function handleHome() {
+    changeLayout(() => {
+      setActiveSearch(null)
+      setSearching(false)
+      setBrowsing(false)
+    })
   }
 
   // SearchResults starts its request again whenever this function changes, so it must stay the same
@@ -81,60 +114,56 @@ export default function CollectionView({ collection, filesVersion }: CollectionV
     setDetail({ asset, snippet, query })
   }
 
-  const compact = activeSearch !== null
+  const compact = activeSearch !== null || browsing
   const showFilters = compact || filtersOpen
   const toggleClass =
-    'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-gray-100 hover:text-indigo-600'
+    'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-surface-hover hover:text-accent-text'
 
   return (
     <div className="space-y-6">
       {/* One set of elements for both layouts, only the classes change, so the search box keeps its text
           when the results appear. */}
-      <div className={compact ? 'flex items-center gap-4' : 'flex flex-col items-center gap-8 pt-10 pb-6 sm:pt-16'}>
-        <div className={`flex shrink-0 items-center ${compact ? 'gap-2' : 'gap-3'}`}>
-          <div className={`flex items-center justify-center bg-indigo-600 ${compact ? 'size-9 rounded-lg' : 'size-14 rounded-2xl'}`}>
-            <StackIcon className={compact ? 'size-5 text-white' : 'size-8 text-white'} />
-          </div>
-          <span
-            className={`font-semibold tracking-tight text-gray-900 ${compact ? 'hidden text-xl sm:inline' : 'text-5xl'}`}
-          >
-            Sift
-          </span>
-        </div>
-        <div className={compact ? 'min-w-0 flex-1' : 'w-full max-w-2xl'}>
+      <div className={compact ? 'flex items-center gap-4' : 'flex flex-col items-center gap-5 pb-2'}>
+        <button type="button" onClick={handleHome} aria-label="Home" className="shrink-0">
+          <img
+            src={compact ? lockupCompactOnLight : logoOnLight}
+            alt="Sift"
+            className={`logo-moves ${compact ? 'h-9 w-auto' : 'h-64 w-auto'}`}
+          />
+        </button>
+        <div className={`search-box-moves ${compact ? 'min-w-0 flex-1' : 'w-full max-w-3xl'}`}>
           <SearchBar
             compact={compact}
             searching={searching}
             onSearch={handleSearch}
             onCancel={handleCancel}
-            onClear={() => setActiveSearch(null)}
+            onClear={() => changeLayout(() => setActiveSearch(null))}
           />
         </div>
         {!compact && (
-          <div className="-mt-4 flex items-center gap-2">
+          <div className="-mt-2 flex items-center gap-2">
             <button
               type="button"
               onClick={() => setFiltersOpen(!filtersOpen)}
               aria-expanded={filtersOpen}
-              className={`${toggleClass} ${filtersOpen ? 'bg-gray-100 text-indigo-600' : 'text-gray-600'}`}
+              className={`${toggleClass} ${filtersOpen ? 'bg-surface-hover text-accent-text' : 'text-text-muted'}`}
             >
               <AdjustmentsIcon className="size-4" />
               Filters
             </button>
             <button
               type="button"
-              onClick={() => setBrowsing(!browsing)}
-              aria-expanded={browsing}
-              className={`${toggleClass} text-gray-600`}
+              onClick={() => changeLayout(() => setBrowsing(true))}
+              className={`${toggleClass} text-text-muted`}
             >
-              {browsing ? 'Hide all' : 'Browse all'}
-              <ChevronDownIcon className={`size-4 transition-transform ${browsing ? 'rotate-180' : ''}`} />
+              Browse all
+              <ChevronDownIcon className="size-4" />
             </button>
           </div>
         )}
       </div>
       {showFilters && (
-        <div className={compact ? '' : 'mx-auto max-w-2xl'}>
+        <div className={compact ? '' : 'mx-auto max-w-3xl'}>
           <SearchOptions view={view} onChange={setView} />
         </div>
       )}
@@ -156,6 +185,7 @@ export default function CollectionView({ collection, filesVersion }: CollectionV
           collection={collection}
           filesVersion={filesVersion}
           onOpen={(asset) => handleOpen(asset, null, null)}
+          onHide={handleHome}
         />
       </div>
       {detail && (

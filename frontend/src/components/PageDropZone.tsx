@@ -87,13 +87,13 @@ export default function PageDropZone({ collection, onFiles }: PageDropZoneProps)
 
   // pointer-events-none: the overlay only shows; the drag events still reach the page under it.
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-indigo-600/10 p-4 backdrop-blur-[1px]">
-      <div className="absolute inset-3 rounded-2xl border-2 border-dashed border-indigo-400" />
-      <div className="flex flex-col items-center rounded-2xl bg-white px-10 py-8 text-center shadow-xl">
-        <UploadIcon className="size-10 text-indigo-500" />
-        <p className="mt-3 text-base font-semibold text-gray-900">Drop files to upload</p>
-        <p className="mt-1 text-sm text-gray-500">
-          To <span className="font-medium text-gray-900">{collection}</span>
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-accent/10 p-4 backdrop-blur-[1px]">
+      <div className="absolute inset-3 rounded-2xl border-2 border-dashed border-accent" />
+      <div className="flex flex-col items-center rounded-2xl bg-surface px-10 py-8 text-center shadow-xl">
+        <UploadIcon className="size-10 text-accent" />
+        <p className="mt-3 text-base font-semibold text-text">Drop files to upload</p>
+        <p className="mt-1 text-sm text-text-muted">
+          To <span className="font-medium text-text">{collection}</span>
         </p>
       </div>
     </div>

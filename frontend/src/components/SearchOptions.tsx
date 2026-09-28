@@ -30,7 +30,7 @@ const PARTS: { value: Snippet['kind']; label: string }[] = [
   { value: 'filename', label: 'File name' },
 ]
 
-const CHOSEN = 'bg-gray-800 text-white'
+const CHOSEN = 'bg-text text-surface'
 
 // The list with `value` added or taken out. The last value is never taken out: a filter that keeps
 // nothing would only ever show an empty list.
@@ -46,7 +46,7 @@ function toggled<T>(chosen: T[], value: T): T[] {
 
 export default function SearchOptions({ view, onChange }: SearchOptionsProps) {
   return (
-    <div className="grid gap-x-8 gap-y-2 rounded-xl bg-white px-4 py-3 shadow-xs ring-1 ring-gray-200 sm:grid-cols-2">
+    <div className="grid gap-x-8 gap-y-2 rounded-xl bg-surface px-4 py-3 shadow-xs ring-1 ring-border sm:grid-cols-2">
       <Row label="Order">
         {ORDERS.map((order) => (
           <Chip
@@ -103,7 +103,7 @@ export default function SearchOptions({ view, onChange }: SearchOptionsProps) {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="w-16 shrink-0 text-xs font-medium tracking-wide text-gray-500 uppercase">{label}</span>
+      <span className="w-16 shrink-0 text-xs font-medium tracking-wide text-text-muted uppercase">{label}</span>
       <div className="flex flex-wrap gap-1.5">{children}</div>
     </div>
   )
@@ -121,7 +121,7 @@ function Chip({
   onClick: () => void
   children: ReactNode
 }) {
-  const colours = on ? onClass : 'bg-white text-gray-500 ring-1 ring-gray-300 hover:bg-gray-50'
+  const colours = on ? onClass : 'bg-surface text-text-muted ring-1 ring-border-strong hover:bg-surface-hover'
   return (
     <button
       type="button"

@@ -37,26 +37,26 @@ export default function NewCollectionForm({ onCreate, onCancel }: NewCollectionF
           onKeyDown={handleKeyDown}
           placeholder="new-collection"
           aria-label="New collection name"
-          className={`w-48 rounded-lg bg-white px-3 py-2 text-sm text-gray-900 ring-1 outline-none placeholder:text-gray-400 focus:ring-2 ${
-            showError ? 'ring-red-300 focus:ring-red-500' : 'ring-gray-300 focus:ring-indigo-600'
+          className={`w-48 rounded-lg bg-surface px-3 py-2 text-sm text-text ring-1 outline-none placeholder:text-text-subtle focus:ring-2 ${
+            showError ? 'ring-danger/40 focus:ring-danger' : 'ring-border-strong focus:ring-accent'
           }`}
         />
         <button
           type="submit"
           disabled={!isValid}
-          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           Create
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+          className="rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-surface-hover"
         >
           Cancel
         </button>
       </div>
-      <p className={`text-xs ${showError ? 'text-red-600' : 'text-gray-500'}`}>{NAME_RULE_HINT}</p>
+      <p className={`text-xs ${showError ? 'text-danger' : 'text-text-muted'}`}>{NAME_RULE_HINT}</p>
     </form>
   )
 }

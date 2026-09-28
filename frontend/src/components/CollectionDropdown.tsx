@@ -11,7 +11,7 @@ type CollectionDropdownProps = {
 }
 
 function CountPill({ count }: { count: number }) {
-  return <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{count}</span>
+  return <span className="rounded-full bg-surface-hover px-2 py-0.5 text-xs font-medium text-text-muted">{count}</span>
 }
 
 export default function CollectionDropdown({ collections, selected, onSelect }: CollectionDropdownProps) {
@@ -46,7 +46,7 @@ export default function CollectionDropdown({ collections, selected, onSelect }: 
       <button
         type="button"
         disabled
-        className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-gray-400 ring-1 ring-gray-200"
+        className="flex items-center gap-2 rounded-lg bg-surface px-3 py-2 text-sm text-text-subtle ring-1 ring-border"
       >
         <FolderIcon className="size-5" />
         No collections
@@ -67,16 +67,16 @@ export default function CollectionDropdown({ collections, selected, onSelect }: 
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex min-w-52 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-xs ring-1 ring-gray-300 hover:bg-gray-50"
+        className="flex min-w-52 items-center gap-2 rounded-lg bg-surface px-3 py-2 text-sm font-medium text-text shadow-xs ring-1 ring-border-strong hover:bg-surface-hover"
       >
-        <FolderIcon className="size-5 text-gray-400" />
+        <FolderIcon className="size-5 text-text-subtle" />
         <span className="truncate">{current ? current.name : 'Choose a collection'}</span>
         {current && <CountPill count={current.asset_count} />}
-        <ChevronDownIcon className="ml-auto size-4 text-gray-400" />
+        <ChevronDownIcon className="ml-auto size-4 text-text-subtle" />
       </button>
 
       {open && (
-        <ul className="absolute left-0 z-10 mt-2 max-h-80 w-64 overflow-auto rounded-xl bg-white p-1 shadow-lg ring-1 ring-gray-900/5">
+        <ul className="absolute left-0 z-10 mt-2 max-h-80 w-64 overflow-auto rounded-xl bg-surface p-1 shadow-lg ring-1 ring-border">
           {collections.map((collection) => {
             const isSelected = collection.name === selected
             return (
@@ -85,10 +85,10 @@ export default function CollectionDropdown({ collections, selected, onSelect }: 
                   type="button"
                   onClick={() => pick(collection.name)}
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
-                    isSelected ? 'bg-indigo-50 font-medium text-indigo-700' : 'text-gray-700 hover:bg-gray-100'
+                    isSelected ? 'bg-accent-soft font-medium text-accent-text' : 'text-text-muted hover:bg-surface-hover'
                   }`}
                 >
-                  <CheckIcon className={`size-4 ${isSelected ? 'text-indigo-600' : 'invisible'}`} />
+                  <CheckIcon className={`size-4 ${isSelected ? 'text-accent-text' : 'invisible'}`} />
                   <span className="truncate">{collection.name}</span>
                   <span className="ml-auto">
                     <CountPill count={collection.asset_count} />

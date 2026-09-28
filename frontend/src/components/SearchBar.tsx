@@ -63,15 +63,15 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
           shadow drawn around the input, so the input has a border (drawn inside it) and the shadow is here. */}
       <div
         className={`relative w-full flex-1 overflow-hidden rounded-full ${
-          compact ? 'shadow-sm' : 'shadow-lg shadow-indigo-900/10'
+          compact ? 'shadow-sm' : 'shadow-lg shadow-accent/10'
         }`}
       >
         {searching ? (
-          <SpinnerIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-indigo-500" />
+          <SpinnerIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-accent" />
         ) : (
           <SearchIcon
             className={`pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 ${
-              compact ? 'size-5 text-gray-400' : 'size-6 text-indigo-500'
+              compact ? 'size-5 text-text-subtle' : 'size-6 text-accent'
             }`}
           />
         )}
@@ -81,12 +81,12 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
           readOnly={searching}
           placeholder="Search this collection, e.g. black hair, receipts, a screenshot with text"
           aria-label="Search"
-          className={`w-full rounded-full border-2 pr-12 outline-none focus:border-indigo-600 ${
-            compact ? 'py-2 pl-12 text-base placeholder:text-gray-400' : 'py-4 pl-13 text-lg placeholder:text-gray-500'
+          className={`w-full rounded-full border-2 pr-12 outline-none focus:border-accent ${
+            compact ? 'py-2 pl-12 text-base placeholder:text-text-subtle' : 'py-4 pl-13 text-lg placeholder:text-text-muted'
           } ${
             searching
-              ? 'border-gray-200 bg-gray-100 text-gray-500'
-              : 'border-gray-300 bg-white text-gray-900 hover:border-indigo-300'
+              ? 'border-border bg-surface-hover text-text-muted'
+              : 'border-border-strong bg-surface text-text hover:border-accent-muted'
           }`}
         />
         {!searching && text !== '' && (
@@ -94,14 +94,14 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
             type="button"
             onClick={clear}
             aria-label="Clear search"
-            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full p-1.5 text-text-subtle hover:bg-surface-hover hover:text-text-muted"
           >
             <CloseIcon className="size-5" />
           </button>
         )}
         {searching && (
           <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5" aria-hidden="true">
-            <span className="block h-full w-1/4 animate-sweep rounded-full bg-indigo-500" />
+            <span className="block h-full w-1/4 animate-sweep rounded-full bg-accent" />
           </span>
         )}
       </div>
@@ -110,7 +110,7 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
         <button
           type="button"
           onClick={cancel}
-          className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-red-600 shadow-xs ring-1 ring-red-300 hover:bg-red-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface px-6 py-2.5 text-sm font-semibold text-danger shadow-xs ring-1 ring-danger/40 hover:bg-danger-soft"
         >
           <CloseIcon className="size-4" />
           Cancel
@@ -118,7 +118,7 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
       ) : (
         <button
           type="submit"
-          className="shrink-0 rounded-full bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"
+          className="shrink-0 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-on-accent shadow-xs hover:bg-accent-hover"
         >
           Search
         </button>
