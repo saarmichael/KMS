@@ -29,13 +29,13 @@ import SearchBar from './SearchBar'
 import SearchOptions from './SearchOptions'
 import SearchResults from './SearchResults'
 import { AdjustmentsIcon, ChevronDownIcon } from './icons'
-// The Sift logo: on the home page the full logo, the word under the sifter; in the bar above results the
-// compact mark and word side by side, which is made for small heights. Each in a light-background and a
-// dark-background version, for the two themes.
-import logoOnDark from '../assets/sift-logo-on-dark-800.png'
-import logoOnLight from '../assets/sift-logo-on-light-800.png'
-import lockupCompactOnDark from '../assets/sift-lockup-compact-on-dark.svg'
-import lockupCompactOnLight from '../assets/sift-lockup-compact-on-light.svg'
+// The Sift logo: the whole word on the home page; in the bar above results only the mark, the i on its own,
+// which stays legible at that small height. Each in a light-background and a dark-background version, for
+// the two themes.
+import logoOnDark from '../assets/sift-logo-on-dark.svg'
+import logoOnLight from '../assets/sift-logo-on-light.svg'
+import markOnDark from '../assets/sift-mark-on-dark.svg'
+import markOnLight from '../assets/sift-mark-on-light.svg'
 
 type CollectionViewProps = {
   collection: string
@@ -121,7 +121,7 @@ export default function CollectionView({ collection, filesVersion, theme }: Coll
 
   const compact = activeSearch !== null || browsing
   const fullLogo = theme === 'dark' ? logoOnDark : logoOnLight
-  const compactLogo = theme === 'dark' ? lockupCompactOnDark : lockupCompactOnLight
+  const mark = theme === 'dark' ? markOnDark : markOnLight
   const showFilters = compact || filtersOpen
   const toggleClass =
     'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-surface-hover hover:text-accent-text'
@@ -133,9 +133,9 @@ export default function CollectionView({ collection, filesVersion, theme }: Coll
       <div className={compact ? 'flex items-center gap-4' : 'flex flex-col items-center gap-5 pb-2'}>
         <button type="button" onClick={handleHome} aria-label="Home" className="shrink-0">
           <img
-            src={compact ? compactLogo : fullLogo}
+            src={compact ? mark : fullLogo}
             alt="Sift"
-            className={`logo-moves ${compact ? 'h-9 w-auto' : 'h-64 w-auto'}`}
+            className={`logo-moves ${compact ? 'h-12 w-auto' : 'h-36 w-auto'}`}
           />
         </button>
         <div className={`search-box-moves ${compact ? 'min-w-0 flex-1' : 'w-full max-w-3xl'}`}>
