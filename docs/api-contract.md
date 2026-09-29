@@ -1,4 +1,4 @@
-# KMS — API contract
+# Sift — API contract
 
 **Status: approved by Michael, Sep 26, 2026.**
 

@@ -38,10 +38,3 @@ def test_right_password_passes(password_set, client):
 
 def test_health_is_open_with_a_password_set(password_set, client):
     assert client.get("/api/health").status_code == 200
-
-
-def test_spa_index_is_sent_with_no_cache(client):
-    for path in ("/", "/some/deep/path"):
-        response = client.get(path)
-        assert response.status_code == 200
-        assert response.headers["Cache-Control"] == "no-cache"

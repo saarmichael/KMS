@@ -22,24 +22,24 @@ def health() -> dict:
     """
     engine = db.get_engine()
     url = engine.url.render_as_string(hide_password=False)
-    out: dict = {"status": "ok"}
+    report: dict = {"status": "ok"}
     try:
-        out["db"] = "ok" if db.db_ping() else "bad"
-    except Exception as e:  # pragma: no cover - surfaced in the response
-        out["db"] = f"error: {e}"
-        out["status"] = "degraded"
-        logger.warning("health_degraded db=%r", out["db"])
-        return out
+        report["db"] = "ok" if db.db_ping() else "bad"
+    except Exception as error:  # pragma: no cover - surfaced in the response
+        report["db"] = f"error: {error}"
+        report["status"] = "degraded"
+        logger.warning("health_degraded db=%r", report["db"])
+        return report
     current, head = migrations.current_revision(engine), migrations.head_revision(url)
-    out["migrations"] = {"current": current, "head": head, "ok": current == head}
-    out["notify"] = db.notify_self_test()
-    out["ai_provider"] = get_settings().ai_provider
-    if not (out["migrations"]["ok"] and out["notify"]["ok"]):
-        out["status"] = "degraded"
+    report["migrations"] = {"current": current, "head": head, "ok": current == head}
+    report["notify"] = db.notify_self_test()
+    report["ai_provider"] = get_settings().ai_provider
+    if not (report["migrations"]["ok"] and report["notify"]["ok"]):
+        report["status"] = "degraded"
         logger.warning(
             "health_degraded migrations_current=%s migrations_head=%s notify=%s",
             current,
             head,
-            out["notify"],
+            report["notify"],
         )
-    return out
+    return report

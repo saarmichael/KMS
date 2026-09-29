@@ -34,3 +34,24 @@ def test_spa_never_serves_a_file_outside_the_build(spa_client):
 
     assert response.status_code == 200
     assert response.text == "the index page"
+
+
+def test_spa_index_is_sent_with_no_cache(spa_client):
+    for path in ("/", "/some/deep/path"):
+        response = spa_client.get(path)
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-cache"
+
+
+def test_unknown_api_path_is_a_json_404(spa_client):
+    response = spa_client.get("/api/nope")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_null_byte_path_gets_the_index(spa_client):
+    response = spa_client.get("/index.html%00.txt")
+
+    assert response.status_code == 200
+    assert response.text == "the index page"

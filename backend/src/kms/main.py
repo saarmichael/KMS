@@ -33,8 +33,11 @@ def flatten_validation_error(
     """
     messages = []
     for error in validation_error.errors():
-        # The location ends with the parameter's name, e.g. ("query", "collection").
-        field = error["loc"][-1]
+        # The location holds the parameter's name, e.g. ("query", "collection"). A repeated
+        # parameter adds the value's index after it, e.g. ("query", "match", 0), so the name is
+        # the last string rather than the last item.
+        names = [part for part in error["loc"] if isinstance(part, str)]
+        field = names[-1]
         messages.append(f"{field}: {error['msg']}")
     return JSONResponse(status_code=422, content={"detail": "; ".join(messages)})
 
@@ -64,7 +67,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Build the app: the API routers, plus the built SPA when `static_dir` holds one."""
     configure_logging()
-    app = FastAPI(title="KMS", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Sift", version="0.1.0", lifespan=lifespan)
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
     # The middleware added last runs first, so the password is checked before the upload size.
     app.middleware("http")(assets.reject_oversized_upload)
@@ -93,9 +96,17 @@ def create_app() -> FastAPI:
             # password prompt never shows and every API call then fails. "no-cache" still lets it
             # keep the file, but it must check with the server, and so pass the password, first.
             headers = {"Cache-Control": "no-cache"}
+            # An API path that no router took is a mistyped URL: it gets the API's JSON error,
+            # not the page.
+            if path.startswith("api/"):
+                return JSONResponse(status_code=404, content={"detail": "Not Found"})
             # The path comes from the URL, where "%2e%2e" arrives as "..", so a path that resolves
-            # outside the build is treated as unknown rather than served.
-            file = (static / path).resolve()
+            # outside the build is treated as unknown rather than served. A path the file system
+            # cannot even look up, such as one with a NUL byte, is unknown too.
+            try:
+                file = (static / path).resolve()
+            except ValueError:
+                return FileResponse(index, headers=headers)
             inside_build = file.is_relative_to(static.resolve())
             if path and inside_build and file.is_file():
                 return FileResponse(file, headers=headers)

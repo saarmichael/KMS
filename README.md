@@ -121,7 +121,8 @@ and returns pages of 20 with a "show more". No score threshold is applied:
 recall is preferred over precision, so a weak match costs a glance and a real
 match is never dropped. With `RERANK_ENABLED`, a cross-encoder (Voyage
 rerank-2.5) scores the first page against the query and each result shows that
-relevance; off by default, the no-op keeps the fused order.
+relevance; it needs `AI_PROVIDER=real`. Off by default, or with the fake
+adapters, the no-op keeps the fused order.
 
 ## Stack
 
@@ -182,7 +183,7 @@ interface, a flag, a stub, a column) where each one plugs in.
 
 ### Out of scope by the assignment
 
-Authentication and authorisation, redundancy, rate limiting, production-grade
+Authentication and authorisation beyond one shared password, redundancy, rate limiting, production-grade
 security, backups.
 
 ## Future enhancements

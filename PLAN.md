@@ -76,6 +76,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D57 | Retry policy chosen by the caller | Every vendor call (`describe`, `embed`, `rerank`) takes a required `RetryPolicy` (attempts, first wait, the longest server-requested wait honoured, timeout per request), chosen at the call site: `BACKGROUND_POLICY` for the worker and the CLI, `INTERACTIVE_POLICY` for the search query's embedding, `OPTIONAL_POLICY` (one attempt) for the closest sentences and the rerank, whose failure only drops a hint. Each adapter reads its own vendor's errors (`classify_gemini_error`, `classify_voyage_error`); `errors.py` keeps only the vendor-neutral loop and imports no SDK; Gemini's model fallback reads `is_overloaded` in `gemini.py`. The timeout travels with the policy: per request for Gemini, one client per timeout for Voyage (`VoyageClients`). One adapter instance per context (worker, search) was weighed and rejected: it cannot tell the search query from the optional search calls. Phase 9, item 9. Michael's addition | decided (Sep 29) |
 | D58 | Demo mode | `DEMO_MODE` (default off) is a runtime setting: `GET /api/config` returns `{demo_mode}`, the UI reads it once on load, shows a "Demo" label by the logo, and greys out Delete, with a hint bubble on hover, "Deleting collections is not allowed in demo mode", and `DELETE /api/collections/{name}` answers `403` while it is on, so the shared collection is safe from curl too. A failed config call leaves the button enabled; the server still refuses. A build-time `VITE_DEMO_MODE` was weighed (a rebuild per mode, a Dockerfile `ARG`). There is no per-asset delete, so nothing else is switched off. Phase 9, item 10 | decided (Sep 29) |
 | D59 | Review fixes before hand-over | An external-review pass found: the SPA route served any file on disk (`%2e%2e` in the URL), so it now serves only files that resolve inside the build; `make test` read `DEMO_MODE` from `.env`; the built SPA was tracked because `.gitignore` named the wrong path; an oversized upload was received in full before its `413`; a vendor outage in search was a bare `500`; recordings grew with every query and could be left half-written; "Show more" could append a page of an old filter; `q` had no length limit; docs lagged the code. Fixes: resolve-and-check in `spa()`; `DEMO_MODE` pinned in the test conftest; the `.gitignore` path; a `Content-Length` middleware (`413` before the body is read); `503` via `QueryEmbeddingFailed`; `AI_CACHE_DIR` off by default and atomic `write_recording`; the view's `AbortController` cancels its later pages; `q` capped at 500 characters (`422`); README, system design, contract and the entrypoint comment brought in line, F13 retired. Left as is (Michael): seeding not built, local recordings and blobs in the Docker image, the Phase log. Phase 9, item 11 | decided (Sep 29) |
+| D60 | Checklist follow-ups | Three checklist agents (browser demo script, backend ops and contract, a fresh reviewer following the README) ran against throwaway instances after D59. Small fixes: `spa()` answers an unknown `api/` path with a JSON `404` and treats a path it cannot resolve (a NUL byte) as unknown; the no-cache test builds its own UI folder, so a fresh clone passes; the search box stops at 500 characters; a model answer that fails validation is stored as a readable sentence, the raw error kept in the log; a `422` on a list filter names the parameter, not its index; docs (auth wording, reranker needs real adapters, TESTING.md run and open items, the unit kinds and deploy source in the design); the API title and the contract say Sift. Everything else found is listed, unfixed, in `Smart_Search/flaws.md` (Michael, Sep 29). Phase 9, item 12 | decided (Sep 29) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1574,6 +1575,26 @@ embedding or a 20-text rerank in well under a second, so the timeouts only cut c
   aborted is dropped. Browser check.
 - *Part 5e, `api/search.py`:* `q: Annotated[str, Query(max_length=MAX_QUERY_CHARS)]`, `MAX_QUERY_CHARS = 500`, a
   constant, not a setting. Test: a 501-character query added to `test_rejects_invalid_parameters`.
+
+12. **Checklist follow-ups (D60)**: small fixes from the three checklist agents run after item 11. On branch
+    `review-fixes`, one part; asked by Michael Sep 29 to plan and implement together. What is not fixed here is
+    written to `Smart_Search/flaws.md`, so the state at hand-over is stated honestly.
+
+- *`main.py`, `spa(path)`:* a path starting with `api/` gets `404 {"detail": "Not Found"}`, so a mistyped API URL
+  never returns the page; a path that cannot be resolved (`ValueError`, e.g. a NUL byte) is treated as unknown and
+  gets `index.html`. Tests (`test_spa.py`): `test_unknown_api_path_is_a_json_404`,
+  `test_null_byte_path_gets_the_index`, and `test_spa_index_is_sent_with_no_cache` moved here from `test_auth.py`,
+  on the temporary build, so a clone without a built UI passes.
+- *`main.py`, `flatten_validation_error`:* the field is the last string in the error's location, so a repeated
+  parameter reports `match: …`, not `0: …`. Test: `test_invalid_filter_value_names_the_parameter`.
+- *`ingest/worker.py`, `record_failure`:* a `pydantic.ValidationError` is stored as "The AI model's answer did not
+  match the expected format."; other errors keep `"<ErrorClass>: <message>"`; the log line carries the raw error.
+  Tests: the two `test_worker.py` assertions on `error` follow the new text.
+- *`frontend/src/components/SearchBar.tsx`:* the input takes `maxLength={500}`, the server's limit.
+- *Docs:* README (authentication beyond one shared password is out of scope; `RERANK_ENABLED` acts only with
+  `AI_PROVIDER=real`); TESTING.md (the compose profile, no CI yet, rerank built, the Claude Code sentence);
+  system-design (the five unit kinds, dedup unique on `(collection, sha256)`, deploy by `railway up`); contract
+  and FastAPI title "Sift"; `health.py` names; `Unit` docstring lists `visible_text`.
 
 Each is its own gate; each can be skipped without touching anything else.
 

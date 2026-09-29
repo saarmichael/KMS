@@ -78,6 +78,8 @@ export default function SearchBar({ compact, searching, onSearch, onCancel, onCl
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
+          // The server refuses a longer query, so the box stops there rather than let a search fail.
+          maxLength={500}
           readOnly={searching}
           placeholder="Search this collection, e.g. black hair, receipts, a screenshot with text"
           aria-label="Search"

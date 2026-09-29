@@ -177,6 +177,15 @@ def test_rejects_invalid_parameters(client):
         assert isinstance(response.json()["detail"], str), params
 
 
+def test_invalid_filter_value_names_the_parameter(client):
+    params = {"collection": "demo", "q": "harbour", "match": "fuzzy"}
+
+    response = client.get("/api/search", params=params)
+
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("match: ")
+
+
 def test_search_answers_503_when_the_query_cannot_be_embedded(client, stub_embedder, monkeypatch):
     def embedder_is_down(inputs, input_type, policy):
         raise ConnectionError("Voyage did not answer")

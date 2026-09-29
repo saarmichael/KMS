@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from pydantic import ValidationError
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import RowMapping
 
@@ -36,7 +37,7 @@ class Unit:
     """One search unit, ready to be embedded and stored.
 
     Attributes:
-        kind: "metadata", "filename", "content" or "image".
+        kind: "metadata", "filename", "content", "visible_text" or "image".
         unit_index: The unit's position among the asset's units of the same kind.
         start_char: For a content unit, where its chunk starts in the file; otherwise None.
         end_char: For a content unit, where its chunk ends in the file; otherwise None.
@@ -326,13 +327,21 @@ def record_failure(asset: RowMapping, error: Exception) -> str:
 
     Args:
         asset: The row returned by `claim_one`.
-        error: What went wrong; stored as "<ErrorClass>: <message>", cut to 1,000 characters.
+        error: What went wrong; stored as "<ErrorClass>: <message>", cut to 1,000 characters,
+            except a model answer that failed validation, stored as a plain sentence. The log
+            line always carries the raw error.
 
     Returns:
         The asset's new status, "pending" or "failed", or "lease_lost" when another worker
         holds the asset now and nothing was written.
     """
-    message = f"{type(error).__name__}: {error}"[:ERROR_MAX_CHARS]
+    raw_message = f"{type(error).__name__}: {error}"[:ERROR_MAX_CHARS]
+    # The user sees this text on the file's card. Pydantic's report quotes the model's broken
+    # answer and a documentation link, which tells the user nothing they can act on.
+    if isinstance(error, ValidationError):
+        message = "The AI model's answer did not match the expected format."
+    else:
+        message = raw_message
     if asset["attempts"] >= get_settings().max_attempts:
         new_status = "failed"
     else:
@@ -352,7 +361,7 @@ def record_failure(asset: RowMapping, error: Exception) -> str:
 
     event = "asset_failed" if new_status == "failed" else "attempt_failed"
     logger.warning(
-        "%s asset_id=%s attempt=%s error=%r", event, asset["id"], asset["attempts"], message
+        "%s asset_id=%s attempt=%s error=%r", event, asset["id"], asset["attempts"], raw_message
     )
     return new_status
 

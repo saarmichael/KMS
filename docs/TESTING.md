@@ -2,7 +2,7 @@
 
 Sep 24, 2026 · Michael
 
-Companion to *Sift — System design*. The design says what the system is; this says how we know it works. Lives at `docs/TESTING.md` and is read by Claude Code alongside the design when producing the implementation plan.
+Companion to *Sift — System design*. The design says what the system is; this says how we know it works. Lives at `docs/TESTING.md`.
 
 ## Audience and priorities
 
@@ -65,7 +65,7 @@ Sources: Unsplash / Pexels for people and scenes (free licence, credited in the 
 ## Local run
 
 ```
-docker compose up -d          # api + db (pgvector image)
+docker compose --profile full up -d --build   # api + db (pgvector image)
 make seed                     # ingests seed/demo/ through the upload path
 make test                     # unit + integration (fake adapters)
 make test-live                # adds the live test; needs API keys
@@ -88,5 +88,5 @@ Run before every deploy and once more before the interview. Ten minutes.
 
 ## Open items
 
-- Whether to gate CI on the integration tests (needs a Postgres service in the workflow) or unit-only. Default: both, GitHub Actions with a `pgvector/pgvector` service container.
-- Rerank and pg_trgm, if built, each add one unit test and one matrix row; not planned otherwise.
+- No CI yet. If added: both unit and integration tests, GitHub Actions with a `pgvector/pgvector` service container.
+- Rerank is built, with unit and integration tests; pg_trgm is not built.

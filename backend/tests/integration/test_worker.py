@@ -168,7 +168,7 @@ def test_failed_attempt_returns_to_pending_with_error(db, blob_store):
     asset = load_asset(db, asset_id)
     assert asset["status"] == "pending"
     assert asset["attempts"] == 1
-    assert asset["error"].startswith("ValidationError:")
+    assert asset["error"] == "The AI model's answer did not match the expected format."
     assert load_units(db, asset_id) == []
 
 
@@ -181,7 +181,7 @@ def test_third_failure_marks_failed(db, blob_store):
     asset = load_asset(db, asset_id)
     assert asset["status"] == "failed"
     assert asset["attempts"] == get_settings().max_attempts
-    assert asset["error"].startswith("ValidationError:")
+    assert asset["error"] == "The AI model's answer did not match the expected format."
     assert run_once() is False
 
 
