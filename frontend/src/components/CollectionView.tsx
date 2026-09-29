@@ -41,6 +41,7 @@ type CollectionViewProps = {
   collection: string
   filesVersion: number
   theme: Theme
+  demoMode: boolean
 }
 
 type ActiveSearch = {
@@ -56,7 +57,7 @@ type OpenDetail = {
   query: string | null
 }
 
-export default function CollectionView({ collection, filesVersion, theme }: CollectionViewProps) {
+export default function CollectionView({ collection, filesVersion, theme, demoMode }: CollectionViewProps) {
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null)
   const [searching, setSearching] = useState(false)
   const [detail, setDetail] = useState<OpenDetail | null>(null)
@@ -131,13 +132,24 @@ export default function CollectionView({ collection, filesVersion, theme }: Coll
       {/* One set of elements for both layouts, only the classes change, so the search box keeps its text
           when the results appear. */}
       <div className={compact ? 'flex items-center gap-4' : 'flex flex-col items-center gap-5 pb-2'}>
-        <button type="button" onClick={handleHome} aria-label="Home" className="shrink-0">
-          <img
-            src={compact ? mark : fullLogo}
-            alt="Sift"
-            className={`logo-moves ${compact ? 'h-12 w-auto' : 'h-36 w-auto'}`}
-          />
-        </button>
+        <div className="relative shrink-0">
+          <button type="button" onClick={handleHome} aria-label="Home">
+            <img
+              src={compact ? mark : fullLogo}
+              alt="Sift"
+              className={`logo-moves ${compact ? 'h-12 w-auto' : 'h-36 w-auto'}`}
+            />
+          </button>
+          {/* Tells a visitor at a glance that this is a shared demo: on the logo's top-right corner, or smaller
+              and centred above the narrow mark beside results. Clicks pass through to the logo. */}
+          {demoMode && (
+            <span
+              className={`pointer-events-none absolute rounded-full bg-accent-soft font-semibold tracking-wide text-accent-soft-text uppercase ring-1 ring-accent-muted ${compact ? '-top-4 left-1/2 -translate-x-1/2 px-1.5 text-[10px]' : 'top-3 -right-10 px-2.5 py-0.5 text-xs'}`}
+            >
+              Demo
+            </span>
+          )}
+        </div>
         <div className={`search-box-moves ${compact ? 'min-w-0 flex-1' : 'w-full max-w-3xl'}`}>
           <SearchBar
             compact={compact}

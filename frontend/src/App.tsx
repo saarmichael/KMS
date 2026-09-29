@@ -7,8 +7,10 @@
 //   listCollections() -> `collections` state -> withDrafts() -> `allCollections`
 //     -> <CollectionDropdown collections>                 (names and counts in the picker)
 //     -> <DeleteCollectionDialog name assetCount>         (the selected one)
+//   getAppConfig() -> `demoMode` -> Delete button greyed out, with a hint on hover saying why;
+//     and a Demo label by the logo in <CollectionView demoMode>
 //   Delete button -> dialog -> handleDelete() -> deleteCollection() -> refreshCollections()
-//   selected collection -> <CollectionView collection filesVersion theme>   (search box, then its files or results)
+//   selected collection -> <CollectionView collection filesVersion theme demoMode>   (search box, then its files or results)
 //
 // How an upload flows:
 //   Upload button -> <UploadDialog onFiles>, or files dropped anywhere -> <PageDropZone onFiles>
@@ -16,7 +18,7 @@
 //     each file's progress and outcome update its own item as they arrive
 //     when a file ends: `filesVersion` + 1, so CollectionFiles reloads its list, and refreshCollections()
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, deleteCollection, listCollections, onPasswordNeeded, uploadAsset } from './api/client'
+import { ApiError, deleteCollection, getAppConfig, listCollections, onPasswordNeeded, uploadAsset } from './api/client'
 import type { Collection } from './api/types'
 import { defaultCollection, withDrafts } from './collections'
 import CollectionDropdown from './components/CollectionDropdown'
@@ -50,6 +52,7 @@ export default function App() {
   const nextUploadId = useRef(1)
   // Set by any request answered 401; the whole app then gives way to the Password needed screen.
   const [passwordNeeded, setPasswordNeeded] = useState(false)
+  const [demoMode, setDemoMode] = useState(false)
 
   useEffect(() => {
     onPasswordNeeded(() => setPasswordNeeded(true))
@@ -73,6 +76,13 @@ export default function App() {
   // Loads the collections once, when the page opens.
   useEffect(() => {
     refreshCollections()
+  }, [])
+
+  // If the config cannot be read, delete stays enabled: the server still refuses it in demo mode.
+  useEffect(() => {
+    getAppConfig()
+      .then((config) => setDemoMode(config.demo_mode))
+      .catch(() => {})
   }, [])
 
   // Errors are left to propagate so the dialog can show them.
@@ -186,6 +196,7 @@ export default function App() {
         collection={selectedCollection.name}
         filesVersion={filesVersion}
         theme={theme}
+        demoMode={demoMode}
       />
     )
   }
@@ -234,14 +245,28 @@ export default function App() {
           {/* Delete and the theme toggle sit together at the right end of the bar. */}
           <div className="ml-auto flex items-center gap-2">
             {selectedCollection && (
-              <button
-                type="button"
-                onClick={() => setDeleting(true)}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-danger-soft hover:text-danger/80"
-              >
-                <TrashIcon className="size-4" />
-                Delete
-              </button>
+              // The hover is caught by this wrapper: a disabled button lets the mouse through to it.
+              <span className={demoMode ? 'group relative cursor-not-allowed' : undefined}>
+                <button
+                  type="button"
+                  onClick={() => setDeleting(true)}
+                  disabled={demoMode}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-text-muted hover:bg-danger-soft hover:text-danger/80 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <TrashIcon className="size-4" />
+                  Delete
+                </button>
+                {/* Shown at once on hover, unlike the browser's own tooltip, which waits and is easy to miss.
+                    Right-aligned, because the button sits at the right edge of the bar. */}
+                {demoMode && (
+                  <span
+                    role="tooltip"
+                    className="invisible absolute top-full right-0 z-50 mt-2 whitespace-nowrap rounded-lg bg-text px-3 py-2 text-xs font-medium text-page shadow-md group-hover:visible"
+                  >
+                    Deleting collections is not allowed in demo mode
+                  </span>
+                )}
+              </span>
             )}
             <ThemeToggle theme={theme} onToggle={handleToggleTheme} />
           </div>

@@ -72,4 +72,10 @@ export const handlers = [
     return toHttpResponse(store.deleteCollection(String(params.name)))
   }),
 
+  // The mock is never a demo, so deleting stays possible while working on the UI.
+  http.get('/api/config', async () => {
+    await delay(LATENCY_MS)
+    return HttpResponse.json({ demo_mode: false })
+  }),
+
 ]

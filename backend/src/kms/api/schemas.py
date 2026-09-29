@@ -1,5 +1,5 @@
-"""Response bodies of the asset, collection and search endpoints, written by hand from the API
-contract.
+"""Response bodies of the asset, collection, search and config endpoints, written by hand from the
+API contract.
 
 The class names are the contract's type names, so the backend and the frontend use one name
 for each shape.
@@ -134,3 +134,9 @@ class SearchResponse(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class AppConfig(BaseModel):
+    """How this deployment is set up, as far as the UI needs to know."""
+
+    demo_mode: bool

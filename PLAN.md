@@ -74,6 +74,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D55 | Sift brand, palette and a light/dark theme | The Sift brand kit lives in `frontend/brand/` (logos, lockups, favicons, social image, the scripts that made them); the files the app serves are copied into `frontend/public/` (favicons, manifest, `og-image.png`) and `frontend/src/assets/` (the lockups). Two raw scales from the artwork, `sift` (orange) and `ink` (Bone to Night), and on top of them role colours (`page`, `surface`, `text`, `accent`, …) that components use; each role has a light value and a dark value under `[data-theme="dark"]` on `<html>`, so switching the attribute re-colours the page. Tailwind's `dark:` variant on every element and a flipped `ink` scale were weighed. Orange fills carry Ink text (about 5.4:1; white is about 2.9:1). Poppins, self-hosted through `@fontsource/poppins`. A toggle in the header's top corner switches the theme; the first visit follows the OS setting, a chosen theme is kept in `localStorage`, and an inline script in `index.html` sets it before the first paint. Link-preview tags point at the Railway URL; behind the password, previews show no image. Phase 9, item 8. Michael's addition (both themes and the toggle) | decided (Sep 28) |
 | D56 | Relevance from the reranker | A Voyage reranker (`rerank-2.5`, behind `RERANK_ENABLED`) scores the first `RERANK_CANDIDATES` (20) results of the requested order, after the filters, reading each one's snippet text; the API returns it as `relevance` (0 to 1) next to `score`, which keeps its meaning. A new order, `relevance`, the API's and the UI's default, sorts those candidates by relevance whatever their match kind (this replaces D50's rule that a reranker keeps each result in its tier); the results after them follow in score order. The other orders keep their order and still get relevance on their candidates, so relevance is there whatever the order. Results past the candidates, and every result while reranking is off, have `relevance: null`. No cut-offs turn relevance into "good" or "bad" (amended Sep 29, Michael): the score is given as it is, and how the UI shows it is decided later. Each (model, query, text) pair's relevance is remembered (`RERANK_CACHE_SIZE` pairs, least recently used dropped), so a change of order or filter sends only texts not scored before. A failed rerank leaves `relevance` `null` and score order; the search succeeds. The `Reranker` interface returns relevances, and `NoOpReranker` returns none. Phase 9, item 1. Michael's addition (relevance over tiers by default, the 20 candidates) | decided (Sep 29) |
 | D57 | Retry policy chosen by the caller | Every vendor call (`describe`, `embed`, `rerank`) takes a required `RetryPolicy` (attempts, first wait, the longest server-requested wait honoured, timeout per request), chosen at the call site: `BACKGROUND_POLICY` for the worker and the CLI, `INTERACTIVE_POLICY` for the search query's embedding, `OPTIONAL_POLICY` (one attempt) for the closest sentences and the rerank, whose failure only drops a hint. Each adapter reads its own vendor's errors (`classify_gemini_error`, `classify_voyage_error`); `errors.py` keeps only the vendor-neutral loop and imports no SDK; Gemini's model fallback reads `is_overloaded` in `gemini.py`. The timeout travels with the policy: per request for Gemini, one client per timeout for Voyage (`VoyageClients`). One adapter instance per context (worker, search) was weighed and rejected: it cannot tell the search query from the optional search calls. Phase 9, item 9. Michael's addition | decided (Sep 29) |
+| D58 | Demo mode | `DEMO_MODE` (default off) is a runtime setting: `GET /api/config` returns `{demo_mode}`, the UI reads it once on load, shows a "Demo" label by the logo, and greys out Delete, with a hint bubble on hover, "Deleting collections is not allowed in demo mode", and `DELETE /api/collections/{name}` answers `403` while it is on, so the shared collection is safe from curl too. A failed config call leaves the button enabled; the server still refuses. A build-time `VITE_DEMO_MODE` was weighed (a rebuild per mode, a Dockerfile `ARG`). There is no per-asset delete, so nothing else is switched off. Phase 9, item 10 | decided (Sep 29) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1509,6 +1510,30 @@ embedding or a 20-text rerank in well under a second, so the timeouts only cut c
   `test_sentences_and_rerank_use_optional_policy` (search service), `test_worker_calls_use_background_policy`.
   The test stubs of every adapter gain the `policy` parameter. (As built: the Gemini tests also check that a
   blocked answer is not retryable; the live tests pass `BACKGROUND_POLICY`.)
+
+10. **Demo mode (D58)**: the demo is shared, so a visitor must not be able to delete its collection. On branch
+    `demo-mode`, one part.
+
+- *`config.py`:* `demo_mode: bool = False` (`DEMO_MODE`), in the serving section; documented in `.env.example`.
+- *`api/schemas.py`:* `AppConfig(demo_mode: bool)`.
+- *`api/app_config.py` (new):* `GET /api/config -> AppConfig`, the setting as it is. A new endpoint rather than a
+  field in `/api/health`: health is not a product call and is open without the password.
+- *`api/collections.py`:* `delete_collection` raises `HTTPException(403, "Deleting collections is not allowed in
+  demo mode.")` before deleting anything while `demo_mode` is on. *`main.py`:* registers the router.
+- *`docs/api-contract.md`:* §6.10 `GET /api/config`; `403` added to §6.7; §7 and §8 rows.
+- *Frontend:* `AppConfig` type and `getAppConfig(): Promise<AppConfig>`; `App.tsx` reads it once on load into
+  `demoMode` (a failed call leaves it `false`); the Delete button is `disabled` and greyed out. Amended Sep 29
+  (Michael): the browser's `title` tooltip waited and went unnoticed, so hovering now shows a styled hint bubble
+  at once, "Deleting collections is not allowed in demo mode", right-aligned under the button; CSS only
+  (Tailwind `group-hover` on a wrapping `<span>`, which a disabled button lets the mouse through to), no touch
+  support. Amended Sep 29 (Michael): a "Demo" pill on the logo's top-right corner on the home page, and smaller,
+  centred above the mark beside results, so a visitor sees at once that this is a demo; `CollectionView` takes
+  a new `demoMode: boolean` prop from `App.tsx`. It does not glide with the logo, and clicks pass through it.
+  The mock handler for `GET /api/config` returns `demo_mode: false`.
+- *Tests (`test_assets_api.py`):* `test_config_reports_demo_mode` (off and on), `test_delete_refused_in_demo_mode`
+  (403, the detail, the collection still there), `test_delete_allowed_outside_demo_mode`. Browser check with
+  `DEMO_MODE=true`.
+- Per-asset delete does not exist and stays out (Michael, Sep 29).
 
 Each is its own gate; each can be skipped without touching anything else.
 

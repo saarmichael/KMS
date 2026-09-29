@@ -1,8 +1,10 @@
 import hashlib
 import uuid
 
+import pytest
 from sqlalchemy import text
 
+from kms.config import get_settings
 from kms.db import ASSET_PENDING_CHANNEL, listen_connection
 from kms.ingest.worker import run_once
 
@@ -177,3 +179,42 @@ def test_collections_have_counts_and_delete_is_idempotent(client):
     }
     assert client.delete("/api/collections/demo").status_code == 204
     assert client.delete("/api/collections/Bad Name").status_code == 422
+
+
+@pytest.fixture
+def demo_mode(monkeypatch):
+    # The settings are cached per process, so the cache is cleared on the way in and out;
+    # otherwise demo mode would leak into other tests.
+    monkeypatch.setenv("DEMO_MODE", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_config_reports_demo_mode(client, monkeypatch):
+    assert client.get("/api/config").json() == {"demo_mode": False}
+
+    monkeypatch.setenv("DEMO_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        assert client.get("/api/config").json() == {"demo_mode": True}
+    finally:
+        get_settings.cache_clear()
+
+
+def test_delete_refused_in_demo_mode(demo_mode, client):
+    post_file(client, "a.txt", NOTE)
+
+    response = client.delete("/api/collections/demo")
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Deleting collections is not allowed in demo mode."}
+    assert client.get("/api/collections").json() == {
+        "collections": [{"name": "demo", "asset_count": 1}]
+    }
+
+
+def test_delete_allowed_outside_demo_mode(client):
+    post_file(client, "a.txt", NOTE)
+
+    assert client.delete("/api/collections/demo").status_code == 204
+    assert client.get("/api/collections").json() == {"collections": []}

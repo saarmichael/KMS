@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     # --- serving -------------------------------------------------------------
     # The one password for the whole app (any username); empty leaves the app open.
     app_password: str = ""
+    # A shared demo deployment: the UI greys out deleting a collection and the API refuses it.
+    demo_mode: bool = False
     static_dir: Path = Path(__file__).parent / "static"
 
     @field_validator("database_url", "test_database_url")

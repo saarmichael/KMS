@@ -1,10 +1,11 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Response
+from fastapi import APIRouter, HTTPException, Path, Response
 from sqlalchemy import delete, func, select
 
 from kms.api.schemas import COLLECTION_NAME_PATTERN, Collection, CollectionList
+from kms.config import get_settings
 from kms.db import get_engine
 from kms.models import assets
 
@@ -40,7 +41,14 @@ def delete_collection(name: Annotated[str, Path(pattern=COLLECTION_NAME_PATTERN)
 
     Returns:
         An empty 204, also when the collection held nothing.
+
+    Raises:
+        HTTPException: 403 in demo mode, where visitors must not remove the shared collections.
     """
+    if get_settings().demo_mode:
+        raise HTTPException(
+            status_code=403, detail="Deleting collections is not allowed in demo mode."
+        )
     with get_engine().begin() as connection:
         deleted = connection.execute(delete(assets).where(assets.c.collection == name))
     logger.info("collection_deleted collection=%s assets=%d", name, deleted.rowcount)

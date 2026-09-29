@@ -151,6 +151,7 @@ A pending text file looks the same with `"asset_type": "text"`, `"status": "pend
 | 6.7 | `DELETE /api/collections/{name}` | Delete a collection and all its assets |
 | 6.8 | `GET /api/search?collection=&q=&page=` | Hybrid search within a collection |
 | 6.9 | `GET /api/health` | Deployment check |
+| 6.10 | `GET /api/config` | Deployment settings the UI needs |
 
 ### 6.1 `POST /api/assets` — upload one file
 
@@ -272,6 +273,7 @@ type Collection = {
 | Status | Body | When |
 | --- | --- | --- |
 | `204 No Content` | none | The collection's assets and search units are gone. Also `204` when the collection had no assets: deleting twice is not an error, and it lets the UI "delete" a new collection that was never uploaded to |
+| `403` | error | Demo mode is on (`DEMO_MODE`): `"Deleting collections is not allowed in demo mode."`; nothing is deleted |
 | `422` | error | Name breaks the rule |
 
 Deletes database rows only; the files stay on disk (D13).
@@ -404,16 +406,28 @@ When `db` is not reachable the response stops after `db`, so `migrations`, `noti
 missing. This endpoint is the one exception to "no key is ever omitted"; it is kept as built because no
 screen depends on it.
 
+### 6.10 `GET /api/config` — deployment settings
+
+**When the UI calls it:** once, on app load.
+
+```ts
+type AppConfig = {
+  demo_mode: boolean;   // true: the UI greys out "Delete collection", and 6.7 answers 403
+};
+```
+
+If the call fails, the UI treats `demo_mode` as `false`; the server still refuses the delete.
+
 ---
 
 ## 7. Which call feeds which screen
 
 | Screen or action (Phase 7) | Calls |
 | --- | --- |
-| App load | `GET /api/collections`; select `demo` if present |
+| App load | `GET /api/collections`; select `demo` if present; `GET /api/config` |
 | Collection selector with counts | `GET /api/collections` |
 | "+ New collection" | none until the first upload (section 3) |
-| "Delete collection" | `DELETE /api/collections/{name}`, then `GET /api/collections` |
+| "Delete collection" | `DELETE /api/collections/{name}`, then `GET /api/collections`; greyed out with a tooltip when `demo_mode` |
 | Asset list with status badges | `GET /api/assets?collection=`, repeated every 2 s while any asset is `pending` or `processing` |
 | Upload (drag and drop, multi-file) | `POST /api/assets` once per file, then refresh the list and the collections |
 | "Already in this collection" / alias note | `deduplicated` in the upload response; `aliases` on the asset |
@@ -438,3 +452,4 @@ screen depends on it.
 | D51 | A snippet matched by meaning points at its closest sentence (`snippet.sentence_start`/`sentence_end`, in `text`) | 6.8 |
 | D52 | The text read from an image is its own part: `snippet.kind` and `found_in` value `"visible_text"` | 6.8 |
 | D56 | The reranker's `relevance` on the first 20 results; `order=relevance`, the default, sorts them by it | 6.8 |
+| D58 | Demo mode: `GET /api/config` tells the UI; deleting a collection is refused with `403` | 6.7, 6.10 |

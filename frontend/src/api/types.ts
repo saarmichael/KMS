@@ -34,6 +34,11 @@ export type Collection = {
   asset_count: number
 }
 
+// How the deployment is set up. In demo mode, deleting a collection is switched off.
+export type AppConfig = {
+  demo_mode: boolean
+}
+
 // deduplicated is true when the collection already held these exact bytes.
 export type UploadResponse = {
   deduplicated: boolean
