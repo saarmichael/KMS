@@ -2,9 +2,20 @@ from types import SimpleNamespace
 
 import pytest
 
+from kms.ai.errors import OPTIONAL_POLICY
 from kms.ai.voyage import VoyageReranker
 
 MODEL = "rerank-test-model"
+
+
+class StubClients:
+    """Stands in for VoyageClients: hands out one stub client whatever the timeout."""
+
+    def __init__(self, client):
+        self.client = client
+
+    def for_timeout(self, seconds: float):
+        return self.client
 
 
 class StubClient:
@@ -27,7 +38,9 @@ class StubClient:
 def test_relevance_comes_back_in_input_order():
     client = StubClient([0.2, 0.9, 0.5])
 
-    relevances = VoyageReranker(client, MODEL).rerank("lisbon", ["a", "b", "c"])
+    relevances = VoyageReranker(StubClients(client), MODEL).rerank(
+        "lisbon", ["a", "b", "c"], OPTIONAL_POLICY
+    )
 
     assert relevances == [0.2, 0.9, 0.5]
     (call,) = client.calls
@@ -40,7 +53,9 @@ def test_relevance_comes_back_in_input_order():
 def test_no_documents_makes_no_call():
     client = StubClient([])
 
-    assert VoyageReranker(client, MODEL).rerank("lisbon", []) == []
+    reranker = VoyageReranker(StubClients(client), MODEL)
+
+    assert reranker.rerank("lisbon", [], OPTIONAL_POLICY) == []
     assert client.calls == []
 
 
@@ -48,4 +63,4 @@ def test_wrong_count_raises():
     client = StubClient([0.2])
 
     with pytest.raises(ValueError, match="1 scores for 2 documents"):
-        VoyageReranker(client, MODEL).rerank("lisbon", ["a", "b"])
+        VoyageReranker(StubClients(client), MODEL).rerank("lisbon", ["a", "b"], OPTIONAL_POLICY)

@@ -11,6 +11,7 @@ import random
 import re
 from typing import Literal
 
+from kms.ai.errors import RetryPolicy
 from kms.ai.fake_fixtures import FIXTURES
 from kms.ai.interfaces import Description, Embedder, PhotoDetails, Vision
 from kms.ai.schema import Metadata
@@ -39,6 +40,7 @@ class FakeVision(Vision):
         asset_type: str,
         filename: str,
         photo_details: PhotoDetails | None,
+        policy: RetryPolicy,
     ) -> Description:
         """Return the fixture for this filename, or generic metadata for an unknown one.
 
@@ -47,6 +49,7 @@ class FakeVision(Vision):
             asset_type: "image" or "text"; shapes the generic answer.
             filename: The fixture key.
             photo_details: Ignored.
+            policy: Ignored; nothing is called.
 
         Returns:
             The fixture or the generic metadata, with model "fake-vision".
@@ -98,13 +101,17 @@ class FakeEmbedder(Embedder):
         self.dims = dims
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         """Embed each input; never raises.
 
         Args:
             inputs: A str is split into words; bytes, and a str with no words, are hashed whole.
             input_type: Ignored.
+            policy: Ignored; nothing is called.
 
         Returns:
             One vector of length 1 per input, in the same order.

@@ -3,6 +3,7 @@ from typing import Literal
 import pytest
 
 from kms.ai import set_embedder
+from kms.ai.errors import INTERACTIVE_POLICY, OPTIONAL_POLICY, RetryPolicy
 from kms.ai.interfaces import Embedder, Reranker
 from kms.ai.noop import NoOpReranker
 from kms.config import get_settings
@@ -22,17 +23,23 @@ from kms.search.service import (
 
 
 class CountingEmbedder(Embedder):
-    """Returns a fixed vector and remembers every query it was asked to embed."""
+    """Returns a fixed vector and remembers every query it was asked to embed, and the policy of
+    each call."""
 
     model = "counting-embedder"
 
     def __init__(self):
         self.queries: list[str | bytes] = []
+        self.policies: list[RetryPolicy] = []
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         self.queries.extend(inputs)
+        self.policies.append(policy)
         return [[1.0, 0.0] for _ in inputs]
 
 
@@ -49,18 +56,23 @@ def counting_embedder():
 
 class SentenceEmbedder(Embedder):
     """Embeds each text as the vector a test gave it, along axis 1 when it gave none, and
-    remembers every call."""
+    remembers every call and its policy."""
 
     model = "sentence-embedder"
 
     def __init__(self, vectors_by_text: dict[str, list[float]]):
         self.vectors_by_text = vectors_by_text
         self.calls: list[list[str | bytes]] = []
+        self.policies: list[RetryPolicy] = []
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         self.calls.append(inputs)
+        self.policies.append(policy)
         return [self.vectors_by_text.get(text, [0.0, 1.0]) for text in inputs]
 
 
@@ -70,7 +82,10 @@ class FailingEmbedder(Embedder):
     model = "failing-embedder"
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         raise ConnectionError("vendor down")
 
@@ -169,21 +184,23 @@ def test_snippet_filename_uses_filename():
 
 class StubReranker(Reranker):
     """Scores each text with the relevance a test gave it, 0.5 when it gave none, and remembers
-    every call."""
+    every call and its policy."""
 
     def __init__(self, relevance_by_text: dict[str, float] | None = None):
         self.relevance_by_text = relevance_by_text or {}
         self.calls: list[list[str]] = []
+        self.policies: list[RetryPolicy] = []
 
-    def rerank(self, query: str, documents: list[str]) -> list[float]:
+    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float]:
         self.calls.append(documents)
+        self.policies.append(policy)
         return [self.relevance_by_text.get(text, 0.5) for text in documents]
 
 
 class FailingReranker(Reranker):
     """Fails every call, as a vendor outage would."""
 
-    def rerank(self, query: str, documents: list[str]) -> list[float]:
+    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float]:
         raise ConnectionError("vendor down")
 
 
@@ -378,3 +395,23 @@ def test_embed_error_leaves_results_without_sentence(use_embedder):
     results = mark_closest_sentences(QUERY_VECTOR, found)
 
     assert results == found
+
+
+def test_query_embedding_uses_interactive_policy(counting_embedder):
+    embed_query("counting-embedder", "lisbon")
+
+    assert counting_embedder.policies == [INTERACTIVE_POLICY]
+
+
+def test_sentences_and_rerank_use_optional_policy(use_embedder, use_reranker):
+    embedder = SentenceEmbedder({})
+    use_embedder(embedder)
+    reranker = StubReranker()
+    use_reranker(reranker)
+    found = [found_asset(MatchKind.SEMANTIC)]
+
+    mark_closest_sentences(QUERY_VECTOR, found)
+    score_relevance("lisbon", found, SearchOrder.RELEVANCE)
+
+    assert embedder.policies == [OPTIONAL_POLICY]
+    assert reranker.policies == [OPTIONAL_POLICY]

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from kms.ai import get_embedder, get_vision, set_embedder, set_vision
+from kms.ai.errors import BACKGROUND_POLICY
 from kms.ai.gemini import GeminiVision
 from kms.ai.schema import Metadata, normalise
 from kms.config import get_settings
@@ -69,7 +70,11 @@ def cosine(first: list[float], second: list[float]) -> float:
 
 def test_screenshot_is_described_with_visible_text(live_provider):
     description = get_vision().describe(
-        prepare_image(SCREENSHOT_PATH.read_bytes()), "image", "screenshot.png", None
+        prepare_image(SCREENSHOT_PATH.read_bytes()),
+        "image",
+        "screenshot.png",
+        None,
+        BACKGROUND_POLICY,
     )
 
     metadata = normalise(description.metadata, "image")
@@ -80,7 +85,7 @@ def test_screenshot_is_described_with_visible_text(live_provider):
 
 def test_text_file_is_described(live_provider):
     description = get_vision().describe(
-        NOTE_PATH.read_text(encoding="utf-8"), "text", "note.txt", None
+        NOTE_PATH.read_text(encoding="utf-8"), "text", "note.txt", None, BACKGROUND_POLICY
     )
 
     # Checked on the raw answer: normalising would set it to None whatever the model said.
@@ -96,7 +101,7 @@ def test_every_vision_model_accepts_the_request(live_provider, model):
     # the first is overloaded, which is when a rejected request would be hardest to debug.
     client = get_vision().inner.client
     description = GeminiVision(client, [model]).describe(
-        NOTE_PATH.read_text(encoding="utf-8"), "text", "note.txt", None
+        NOTE_PATH.read_text(encoding="utf-8"), "text", "note.txt", None, BACKGROUND_POLICY
     )
 
     assert description.model == model
@@ -105,9 +110,9 @@ def test_every_vision_model_accepts_the_request(live_provider, model):
 
 def test_black_hair_is_closer_to_brunette_than_to_an_unrelated_sentence(live_provider):
     embedder = get_embedder()
-    [query_vector] = embedder.embed(["black hair"], "query")
+    [query_vector] = embedder.embed(["black hair"], "query", BACKGROUND_POLICY)
     brunette_vector, unrelated_vector = embedder.embed(
-        [BRUNETTE_SENTENCE, UNRELATED_SENTENCE], "document"
+        [BRUNETTE_SENTENCE, UNRELATED_SENTENCE], "document", BACKGROUND_POLICY
     )
 
     assert cosine(query_vector, brunette_vector) > cosine(query_vector, unrelated_vector)
@@ -117,6 +122,7 @@ def test_image_and_text_embed_to_the_configured_dimensions(live_provider):
     vectors = get_embedder().embed(
         [prepare_image(SCREENSHOT_PATH.read_bytes()), NOTE_PATH.read_text(encoding="utf-8")],
         "document",
+        BACKGROUND_POLICY,
     )
 
     assert len(vectors) == 2
@@ -129,7 +135,11 @@ def test_image_and_text_embed_to_the_configured_dimensions(live_provider):
 def test_screenshot_description_is_replayed_from_its_recording(live_provider, caplog):
     caplog.set_level(logging.INFO)
     description = get_vision().describe(
-        prepare_image(SCREENSHOT_PATH.read_bytes()), "image", "screenshot.png", None
+        prepare_image(SCREENSHOT_PATH.read_bytes()),
+        "image",
+        "screenshot.png",
+        None,
+        BACKGROUND_POLICY,
     )
 
     messages = [record.getMessage() for record in caplog.records]
@@ -152,6 +162,7 @@ def test_embeddings_are_replayed_from_their_recording(live_provider, caplog):
     vectors = get_embedder().embed(
         [prepare_image(SCREENSHOT_PATH.read_bytes()), NOTE_PATH.read_text(encoding="utf-8")],
         "document",
+        BACKGROUND_POLICY,
     )
 
     messages = [record.getMessage() for record in caplog.records]

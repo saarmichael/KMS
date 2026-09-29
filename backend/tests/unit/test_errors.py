@@ -1,26 +1,24 @@
 import time
 
-import httpx
 import pytest
-from google.genai.errors import ClientError, ServerError
-from pydantic import BaseModel, ValidationError
-from voyageai import error as voyage_errors
 
-from kms.ai.errors import ErrorKind, call_with_retries, classify, server_retry_delay
+from kms.ai.errors import ErrorVerdict, RetryPolicy, call_with_retries
+
+POLICY = RetryPolicy(
+    max_attempts=4, first_wait_seconds=1.0, max_server_wait_seconds=60.0, timeout_seconds=120.0
+)
 
 
-def gemini_error(code: int, status: str, retry_delay: str | None = None) -> Exception:
-    details = []
-    if retry_delay is not None:
-        details.append(
-            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay}
-        )
-    body = {
-        "error": {"code": code, "message": "from the test", "status": status, "details": details}
-    }
-    if code >= 500:
-        return ServerError(code, body, None)
-    return ClientError(code, body, None)
+class StubError(Exception):
+    """An error whose verdict the test decides."""
+
+    def __init__(self, retryable: bool, server_wait_seconds: float | None = None):
+        super().__init__("from the test")
+        self.verdict = ErrorVerdict(retryable=retryable, server_wait_seconds=server_wait_seconds)
+
+
+def classify_stub(error: Exception) -> ErrorVerdict:
+    return error.verdict
 
 
 @pytest.fixture
@@ -43,134 +41,65 @@ class FailingCall:
         return "answer"
 
 
-@pytest.mark.parametrize(("code", "status"), [(429, "RESOURCE_EXHAUSTED"), (503, "UNAVAILABLE")])
-def test_gemini_429_and_503_are_overloaded(code, status):
-    assert classify(gemini_error(code, status)) == ErrorKind.OVERLOADED
+def test_retries_a_retryable_error_then_succeeds(sleeps):
+    call = FailingCall([StubError(retryable=True), StubError(retryable=True)])
 
-
-@pytest.mark.parametrize("code", [500, 502, 504])
-def test_gemini_500_502_504_are_transient(code):
-    assert classify(gemini_error(code, "INTERNAL")) == ErrorKind.TRANSIENT
-
-
-INVALID_API_KEY_BODY = {
-    "error": {
-        "code": 400,
-        "message": "API key not valid.",
-        "status": "INVALID_ARGUMENT",
-        "details": [
-            {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID"}
-        ],
-    }
-}
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        ClientError(400, INVALID_API_KEY_BODY, None),
-        gemini_error(401, "UNAUTHENTICATED"),
-        gemini_error(402, "PAYMENT_REQUIRED"),
-        gemini_error(403, "PERMISSION_DENIED"),
-        gemini_error(404, "NOT_FOUND"),
-        gemini_error(413, "PAYLOAD_TOO_LARGE"),
-    ],
-)
-def test_gemini_client_errors_are_permanent(error):
-    assert classify(error) == ErrorKind.PERMANENT
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        voyage_errors.RateLimitError("slow down", http_status=429),
-        voyage_errors.ServerError("broken", http_status=500),
-        voyage_errors.APIError("bad gateway", http_status=502),
-        voyage_errors.Timeout("timed out"),
-        voyage_errors.APIConnectionError("no connection"),
-    ],
-)
-def test_voyage_rate_limit_server_and_network_errors_are_transient(error):
-    assert classify(error) == ErrorKind.TRANSIENT
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        voyage_errors.AuthenticationError("bad key", http_status=401),
-        voyage_errors.InvalidRequestError("bad input", http_status=400),
-        voyage_errors.MalformedRequestError("unreadable", http_status=422),
-    ],
-)
-def test_voyage_auth_and_bad_request_are_permanent(error):
-    assert classify(error) == ErrorKind.PERMANENT
-
-
-@pytest.mark.parametrize(
-    "error", [httpx.ConnectError("refused"), httpx.ReadTimeout("no answer in time")]
-)
-def test_network_errors_are_transient(error):
-    assert classify(error) == ErrorKind.TRANSIENT
-
-
-def test_unknown_error_is_permanent():
-    class Answer(BaseModel):
-        title: str
-
-    with pytest.raises(ValidationError) as validation:
-        Answer.model_validate({})
-    assert classify(validation.value) == ErrorKind.PERMANENT
-    assert classify(ValueError("unexpected")) == ErrorKind.PERMANENT
-
-
-def test_server_retry_delay_is_read_from_retry_info():
-    assert server_retry_delay(gemini_error(429, "RESOURCE_EXHAUSTED", "33s")) == 33.0
-    assert server_retry_delay(gemini_error(429, "RESOURCE_EXHAUSTED", "0.5s")) == 0.5
-    assert server_retry_delay(gemini_error(429, "RESOURCE_EXHAUSTED")) is None
-    assert server_retry_delay(voyage_errors.RateLimitError("slow down", http_status=429)) is None
-    assert server_retry_delay(ClientError(429, "not a json object", None)) is None
-
-
-def test_retries_a_transient_error_then_succeeds(sleeps):
-    call = FailingCall([gemini_error(500, "INTERNAL"), gemini_error(500, "INTERNAL")])
-    assert call_with_retries(call, "test") == "answer"
+    assert call_with_retries(call, "test", classify_stub, POLICY) == "answer"
     assert call.calls == 3
-    assert len(sleeps) == 2
+    # About 1 then 4 seconds, each with up to one first wait of jitter.
     assert 1 <= sleeps[0] <= 2
     assert 4 <= sleeps[1] <= 5
 
 
-def test_permanent_error_is_raised_at_once(sleeps):
-    error = gemini_error(400, "INVALID_ARGUMENT")
+def test_not_retryable_error_is_raised_at_once(sleeps):
+    error = StubError(retryable=False)
     call = FailingCall([error])
-    with pytest.raises(ClientError) as raised:
-        call_with_retries(call, "test")
+
+    with pytest.raises(StubError) as raised:
+        call_with_retries(call, "test", classify_stub, POLICY)
     assert raised.value is error
     assert call.calls == 1
     assert sleeps == []
 
 
-def test_gives_up_after_four_attempts(sleeps):
-    errors = [gemini_error(503, "UNAVAILABLE") for _ in range(5)]
+def test_gives_up_after_the_policy_attempts(sleeps):
+    errors = [StubError(retryable=True) for _ in range(5)]
     last_error = errors[3]
     call = FailingCall(errors)
-    with pytest.raises(ServerError) as raised:
-        call_with_retries(call, "test")
+
+    with pytest.raises(StubError) as raised:
+        call_with_retries(call, "test", classify_stub, POLICY)
     assert raised.value is last_error
     assert call.calls == 4
 
 
 def test_waits_as_long_as_the_server_asks(sleeps):
-    call = FailingCall([gemini_error(429, "RESOURCE_EXHAUSTED", "7s")])
-    assert call_with_retries(call, "test") == "answer"
+    call = FailingCall([StubError(retryable=True, server_wait_seconds=7.0)])
+
+    assert call_with_retries(call, "test", classify_stub, POLICY) == "answer"
     assert sleeps == [7.0]
 
 
-def test_server_wait_over_the_cap_is_raised_at_once(sleeps):
-    error = gemini_error(429, "RESOURCE_EXHAUSTED", "3600s")
+def test_server_wait_over_the_policy_cap_is_raised_at_once(sleeps):
+    error = StubError(retryable=True, server_wait_seconds=3600.0)
     call = FailingCall([error])
-    with pytest.raises(ClientError) as raised:
-        call_with_retries(call, "test")
+
+    with pytest.raises(StubError) as raised:
+        call_with_retries(call, "test", classify_stub, POLICY)
+    assert raised.value is error
+    assert call.calls == 1
+    assert sleeps == []
+
+
+def test_one_attempt_policy_never_retries(sleeps):
+    one_attempt = RetryPolicy(
+        max_attempts=1, first_wait_seconds=0.0, max_server_wait_seconds=0.0, timeout_seconds=3.0
+    )
+    error = StubError(retryable=True)
+    call = FailingCall([error])
+
+    with pytest.raises(StubError) as raised:
+        call_with_retries(call, "test", classify_stub, one_attempt)
     assert raised.value is error
     assert call.calls == 1
     assert sleeps == []

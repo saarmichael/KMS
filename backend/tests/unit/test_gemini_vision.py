@@ -1,12 +1,20 @@
 import json
 import time
 
+import httpx
 import pytest
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from kms.ai.gemini import MAX_OUTPUT_TOKENS, ContentBlockedError, GeminiVision
+from kms.ai.errors import BACKGROUND_POLICY, RetryPolicy
+from kms.ai.gemini import (
+    MAX_OUTPUT_TOKENS,
+    ContentBlockedError,
+    GeminiVision,
+    classify_gemini_error,
+    is_overloaded,
+)
 from kms.ai.prompts import TEXT_PROMPT
 from kms.ai.schema import Metadata
 
@@ -25,8 +33,15 @@ VALID_ANSWER = json.dumps(
 INVALID_ANSWER = json.dumps({"title": "Harbour at dusk"})
 
 
-def gemini_error(code: int, status: str) -> Exception:
-    body = {"error": {"code": code, "message": "from the test", "status": status}}
+def gemini_error(code: int, status: str, retry_delay: str | None = None) -> Exception:
+    details = []
+    if retry_delay is not None:
+        details.append(
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay}
+        )
+    body = {
+        "error": {"code": code, "message": "from the test", "status": status, "details": details}
+    }
     if code >= 500:
         return ServerError(code, body, None)
     return ClientError(code, body, None)
@@ -79,7 +94,9 @@ def sleeps(monkeypatch):
 
 
 def describe_image(client: StubClient):
-    return GeminiVision(client, MODELS).describe(b"jpeg bytes", "image", "harbour.jpg", None)
+    return GeminiVision(client, MODELS).describe(
+        b"jpeg bytes", "image", "harbour.jpg", None, BACKGROUND_POLICY
+    )
 
 
 def called_models(client: StubClient) -> list[str]:
@@ -178,8 +195,95 @@ def test_request_uses_schema_lowest_thinking_and_output_limit(sleeps):
 def test_text_file_is_sent_as_text_without_image(sleeps):
     client = StubClient([answer(VALID_ANSWER)])
     vision = GeminiVision(client, MODELS)
-    vision.describe("Minutes of the board meeting.", "text", "minutes.txt", None)
+    vision.describe("Minutes of the board meeting.", "text", "minutes.txt", None, BACKGROUND_POLICY)
     (request,) = client.calls[0]["contents"]
     assert [part.text for part in request.parts] == [TEXT_PROMPT, "Minutes of the board meeting."]
     assert all(part.inline_data is None for part in request.parts)
     assert "minutes.txt" not in str(request)
+
+
+def test_request_timeout_follows_the_policy(sleeps):
+    client = StubClient([answer(VALID_ANSWER)])
+    quick = RetryPolicy(
+        max_attempts=1, first_wait_seconds=0.0, max_server_wait_seconds=0.0, timeout_seconds=3.0
+    )
+
+    GeminiVision(client, MODELS).describe(b"jpeg bytes", "image", "harbour.jpg", None, quick)
+
+    # The SDK takes the timeout in milliseconds.
+    assert client.calls[0]["config"].http_options.timeout == 3000
+
+
+# --- reading Gemini's errors ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("code", "status"), [(429, "RESOURCE_EXHAUSTED"), (503, "UNAVAILABLE")])
+def test_gemini_429_and_503_are_overloaded_and_retryable(code, status):
+    error = gemini_error(code, status)
+
+    assert is_overloaded(error) is True
+    assert classify_gemini_error(error).retryable is True
+
+
+@pytest.mark.parametrize("code", [500, 502, 504])
+def test_gemini_500_502_504_are_retryable_but_not_overloaded(code):
+    error = gemini_error(code, "INTERNAL")
+
+    assert is_overloaded(error) is False
+    assert classify_gemini_error(error).retryable is True
+
+
+INVALID_API_KEY_BODY = {
+    "error": {
+        "code": 400,
+        "message": "API key not valid.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+            {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID"}
+        ],
+    }
+}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ClientError(400, INVALID_API_KEY_BODY, None),
+        gemini_error(401, "UNAUTHENTICATED"),
+        gemini_error(402, "PAYMENT_REQUIRED"),
+        gemini_error(403, "PERMISSION_DENIED"),
+        gemini_error(404, "NOT_FOUND"),
+        gemini_error(413, "PAYLOAD_TOO_LARGE"),
+    ],
+)
+def test_gemini_client_errors_are_not_retryable(error):
+    assert classify_gemini_error(error).retryable is False
+    assert is_overloaded(error) is False
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ConnectError("refused"), httpx.ReadTimeout("no answer in time")]
+)
+def test_network_errors_are_retryable(error):
+    assert classify_gemini_error(error).retryable is True
+
+
+def test_unknown_error_is_not_retryable():
+    class Answer(BaseModel):
+        title: str
+
+    with pytest.raises(ValidationError) as validation:
+        Answer.model_validate({})
+    assert classify_gemini_error(validation.value).retryable is False
+    assert classify_gemini_error(ValueError("unexpected")).retryable is False
+    assert classify_gemini_error(ContentBlockedError("blocked")).retryable is False
+
+
+def test_server_wait_is_read_from_retry_info():
+    def server_wait(error):
+        return classify_gemini_error(error).server_wait_seconds
+
+    assert server_wait(gemini_error(429, "RESOURCE_EXHAUSTED", "33s")) == 33.0
+    assert server_wait(gemini_error(429, "RESOURCE_EXHAUSTED", "0.5s")) == 0.5
+    assert server_wait(gemini_error(429, "RESOURCE_EXHAUSTED")) is None
+    assert server_wait(ClientError(429, "not a json object", None)) is None

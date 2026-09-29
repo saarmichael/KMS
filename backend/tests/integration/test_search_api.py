@@ -11,6 +11,7 @@ from PIL import Image
 from sqlalchemy import insert, update
 
 from kms.ai import set_embedder
+from kms.ai.errors import RetryPolicy
 from kms.ai.interfaces import Embedder, Reranker
 from kms.config import get_settings
 from kms.ingest.worker import run_once
@@ -40,7 +41,10 @@ class StubEmbedder(Embedder):
         self.vectors_by_text: dict[str, list[float]] = {}
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         return [self.vectors_by_text.get(item, self.vector) for item in inputs]
 
@@ -62,7 +66,7 @@ class StubReranker(Reranker):
     def __init__(self, relevance_by_text: dict[str, float] | None = None):
         self.relevance_by_text = relevance_by_text or {}
 
-    def rerank(self, query: str, documents: list[str]) -> list[float]:
+    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float]:
         return [self.relevance_by_text.get(text, 0.5) for text in documents]
 
 

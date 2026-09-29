@@ -46,11 +46,12 @@ def describe_command(path: Path) -> int:
     import json
 
     from kms.ai import get_vision
+    from kms.ai.errors import BACKGROUND_POLICY
 
     try:
         asset_type, prepared = load_file(path)
         description = get_vision().describe(
-            prepared.content, asset_type, path.name, prepared.photo_details
+            prepared.content, asset_type, path.name, prepared.photo_details, BACKGROUND_POLICY
         )
     except Exception as error:
         # A command-line tool reports any failure as one line and an exit code, not a traceback.
@@ -85,6 +86,7 @@ def embed_command(paths: list[Path]) -> int:
     import time
 
     from kms.ai import get_embedder
+    from kms.ai.errors import BACKGROUND_POLICY
 
     labels = []
     inputs = []
@@ -100,7 +102,7 @@ def embed_command(paths: list[Path]) -> int:
                     inputs.append(chunk.text)
         embedder = get_embedder()
         started = time.monotonic()
-        vectors = embedder.embed(inputs, "document")
+        vectors = embedder.embed(inputs, "document", BACKGROUND_POLICY)
         seconds = time.monotonic() - started
     except Exception as error:
         # A command-line tool reports any failure as one line and an exit code, not a traceback.

@@ -4,16 +4,14 @@
 import logging
 from pathlib import Path
 
-import voyageai
 from google import genai
-from google.genai import types
 
 from kms.ai.fake import FakeEmbedder, FakeVision
-from kms.ai.gemini import GEMINI_REQUEST_TIMEOUT_SECONDS, GeminiVision
+from kms.ai.gemini import GeminiVision
 from kms.ai.interfaces import Embedder, Reranker, Vision
 from kms.ai.noop import NoOpReranker
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
-from kms.ai.voyage import VOYAGE_REQUEST_TIMEOUT_SECONDS, VoyageEmbedder, VoyageReranker
+from kms.ai.voyage import VoyageClients, VoyageEmbedder, VoyageReranker
 from kms.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -21,6 +19,8 @@ logger = logging.getLogger(__name__)
 _vision: Vision | None = None
 _embedder: Embedder | None = None
 _reranker: Reranker | None = None
+# One set of Voyage clients for the embedder and the reranker, so a timeout's client is built once.
+_voyage_clients: VoyageClients | None = None
 
 
 def get_vision() -> Vision:
@@ -40,11 +40,8 @@ def get_vision() -> Vision:
             if not settings.gemini_api_key:
                 raise ValueError("GEMINI_API_KEY is not set")
             # No retry_options: the SDK's own retries stay off, so only our backoff decides
-            # when to try again. The SDK takes the timeout in milliseconds.
-            client = genai.Client(
-                api_key=settings.gemini_api_key,
-                http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_SECONDS * 1000),
-            )
+            # when to try again. No timeout either: each request takes its caller's.
+            client = genai.Client(api_key=settings.gemini_api_key)
             gemini_vision = GeminiVision(client, settings.vision_models)
             if settings.ai_cache_dir:
                 _vision = RecordedVision(gemini_vision, Path(settings.ai_cache_dir))
@@ -68,21 +65,16 @@ def get_embedder() -> Embedder:
     Raises:
         ValueError: AI_PROVIDER is "real" and VOYAGE_API_KEY is not set.
     """
-    global _embedder
+    global _embedder, _voyage_clients
     if _embedder is None:
         settings = get_settings()
         if settings.ai_provider == "real":
             if not settings.voyage_api_key:
                 raise ValueError("VOYAGE_API_KEY is not set")
-            # max_retries=0: the SDK's own retries stay off, so only our backoff decides when to
-            # try again.
-            client = voyageai.Client(
-                api_key=settings.voyage_api_key,
-                max_retries=0,
-                timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
-            )
+            if _voyage_clients is None:
+                _voyage_clients = VoyageClients(settings.voyage_api_key)
             voyage_embedder = VoyageEmbedder(
-                client,
+                _voyage_clients,
                 settings.embedding_model,
                 settings.embedding_dims,
                 settings.embed_parallel_calls,
@@ -109,19 +101,15 @@ def get_reranker() -> Reranker:
     Raises:
         ValueError: The Voyage reranker is chosen and VOYAGE_API_KEY is not set.
     """
-    global _reranker
+    global _reranker, _voyage_clients
     if _reranker is None:
         settings = get_settings()
         if settings.rerank_enabled and settings.ai_provider == "real":
             if not settings.voyage_api_key:
                 raise ValueError("VOYAGE_API_KEY is not set")
-            # Its own client, built like the embedder's: the SDK's own retries off.
-            client = voyageai.Client(
-                api_key=settings.voyage_api_key,
-                max_retries=0,
-                timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
-            )
-            _reranker = VoyageReranker(client, settings.rerank_model)
+            if _voyage_clients is None:
+                _voyage_clients = VoyageClients(settings.voyage_api_key)
+            _reranker = VoyageReranker(_voyage_clients, settings.rerank_model)
             logger.info("ai_adapters_selected provider=real reranker=%s", settings.rerank_model)
         else:
             _reranker = NoOpReranker()

@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Literal
 
+from kms.ai.errors import RetryPolicy
 from kms.ai.schema import Metadata
 
 
@@ -54,6 +55,7 @@ class Vision(ABC):
         asset_type: str,
         filename: str,
         photo_details: PhotoDetails | None,
+        policy: RetryPolicy,
     ) -> Description:
         """Describe one file.
 
@@ -64,6 +66,7 @@ class Vision(ABC):
                 content, not the name.
             photo_details: When and where the photo was taken; None for a text file and for an
                 image that carries neither.
+            policy: How hard to try the vendor call, chosen by the caller.
 
         Returns:
             The metadata, validated but not normalised, and the model that wrote it.
@@ -86,13 +89,17 @@ class Embedder(ABC):
 
     @abstractmethod
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         """Embed a batch of inputs in one call.
 
         Args:
             inputs: Each item is embedded as text if it is a str, as an image if it is bytes.
             input_type: "document" for stored content, "query" for a search query.
+            policy: How hard to try the vendor call, chosen by the caller.
 
         Returns:
             One vector per input, in the same order.
@@ -107,12 +114,13 @@ class Reranker(ABC):
     query and each result together."""
 
     @abstractmethod
-    def rerank(self, query: str, documents: list[str]) -> list[float] | None:
+    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float] | None:
         """Score each document by how well it answers the query.
 
         Args:
             query: The query as typed.
             documents: One text per result.
+            policy: How hard to try the vendor call, chosen by the caller.
 
         Returns:
             One relevance from 0 to 1 per document, in the order of `documents`; None when this

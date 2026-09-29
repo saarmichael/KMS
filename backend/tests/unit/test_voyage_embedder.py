@@ -8,7 +8,8 @@ from PIL import Image
 from voyageai import error as voyage_errors
 
 from kms.ai import get_embedder
-from kms.ai.voyage import VoyageEmbedder
+from kms.ai.errors import BACKGROUND_POLICY, RetryPolicy
+from kms.ai.voyage import VoyageClients, VoyageEmbedder, classify_voyage_error
 from kms.config import get_settings
 
 MODEL = "voyage-test-model"
@@ -73,6 +74,18 @@ class StubClient:
                 self.in_flight -= 1
 
 
+class StubClients:
+    """Stands in for VoyageClients: hands out one stub client and records each timeout asked for."""
+
+    def __init__(self, client: StubClient):
+        self.client = client
+        self.timeouts: list[float] = []
+
+    def for_timeout(self, seconds: float) -> StubClient:
+        self.timeouts.append(seconds)
+        return self.client
+
+
 @pytest.fixture
 def sleeps(monkeypatch):
     # The backoff sleeps through time.sleep; recording instead keeps the tests instant.
@@ -93,8 +106,8 @@ def positions(vectors: list[list[float]]) -> list[int]:
 
 def test_texts_and_images_go_in_one_call_in_order(sleeps):
     client = StubClient()
-    embedder = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS)
-    vectors = embedder.embed(["a note", small_jpeg()], "document")
+    embedder = VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS)
+    vectors = embedder.embed(["a note", small_jpeg()], "document", BACKGROUND_POLICY)
 
     (call,) = client.calls
     text_input, image_input = call["inputs"]
@@ -111,7 +124,9 @@ def test_texts_and_images_go_in_one_call_in_order(sleeps):
 def test_more_inputs_than_one_call_takes_are_split_in_order(sleeps):
     client = StubClient()
     texts = [f"note {number}" for number in range(250)]
-    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
+    vectors = VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+        texts, "document", BACKGROUND_POLICY
+    )
 
     # The calls may reach the client in any order.
     assert sorted(len(call["inputs"]) for call in client.calls) == [50, 100, 100]
@@ -122,13 +137,17 @@ def test_more_inputs_than_one_call_takes_are_split_in_order(sleeps):
 
 def test_query_input_type_is_passed_through(sleeps):
     client = StubClient()
-    VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["red car"], "query")
+    VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+        ["red car"], "query", BACKGROUND_POLICY
+    )
     assert client.calls[0]["input_type"] == "query"
 
 
 def test_a_transient_error_is_retried(sleeps):
     client = StubClient(errors=[voyage_errors.RateLimitError("slow down", http_status=429)])
-    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["a note"], "document")
+    vectors = VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+        ["a note"], "document", BACKGROUND_POLICY
+    )
     assert len(client.calls) == 2
     assert len(sleeps) == 1
     assert len(vectors) == 1
@@ -138,12 +157,19 @@ def test_a_transient_error_is_retried(sleeps):
 def test_wrong_vector_length_is_an_error(sleeps):
     client = StubClient(vector_length=512)
     with pytest.raises(ValueError, match="length 512"):
-        VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(["a note"], "document")
+        VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+            ["a note"], "document", BACKGROUND_POLICY
+        )
 
 
 def test_empty_input_makes_no_call(sleeps):
     client = StubClient()
-    assert VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed([], "document") == []
+    assert (
+        VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+            [], "document", BACKGROUND_POLICY
+        )
+        == []
+    )
     assert client.calls == []
 
 
@@ -152,7 +178,9 @@ def test_batches_run_at_the_same_time(sleeps):
     # until the timeout breaks the barrier and the call fails.
     client = StubClient(barrier=threading.Barrier(3, timeout=5))
     texts = [f"note {number}" for number in range(250)]
-    vectors = VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
+    vectors = VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+        texts, "document", BACKGROUND_POLICY
+    )
     assert len(client.calls) == 3
     assert positions(vectors) == list(range(250))
 
@@ -160,7 +188,9 @@ def test_batches_run_at_the_same_time(sleeps):
 def test_parallel_calls_never_exceed_the_setting(sleeps):
     client = StubClient(hold_seconds=0.05)
     texts = [f"note {number}" for number in range(500)]
-    vectors = VoyageEmbedder(client, MODEL, DIMS, 2).embed(texts, "document")
+    vectors = VoyageEmbedder(StubClients(client), MODEL, DIMS, 2).embed(
+        texts, "document", BACKGROUND_POLICY
+    )
     assert len(client.calls) == 5
     assert client.most_in_flight == 2
     assert positions(vectors) == list(range(500))
@@ -170,7 +200,9 @@ def test_a_failed_batch_fails_the_whole_call(sleeps):
     client = StubClient(fail_on="note 150")
     texts = [f"note {number}" for number in range(250)]
     with pytest.raises(voyage_errors.AuthenticationError):
-        VoyageEmbedder(client, MODEL, DIMS, PARALLEL_CALLS).embed(texts, "document")
+        VoyageEmbedder(StubClients(client), MODEL, DIMS, PARALLEL_CALLS).embed(
+            texts, "document", BACKGROUND_POLICY
+        )
     # A permanent error is not retried: one call per batch.
     assert len(client.calls) == 3
 
@@ -192,3 +224,60 @@ def test_real_provider_without_a_key_raises(real_provider, monkeypatch):
     get_settings.cache_clear()
     with pytest.raises(ValueError, match="VOYAGE_API_KEY"):
         get_embedder()
+
+
+def test_client_timeout_follows_the_policy(sleeps):
+    clients = StubClients(StubClient())
+    quick = RetryPolicy(
+        max_attempts=1, first_wait_seconds=0.0, max_server_wait_seconds=0.0, timeout_seconds=3.0
+    )
+
+    VoyageEmbedder(clients, MODEL, DIMS, PARALLEL_CALLS).embed(["a note"], "query", quick)
+
+    assert clients.timeouts == [3.0]
+
+
+def test_one_client_per_timeout():
+    clients = VoyageClients("test-key")
+
+    five_seconds = clients.for_timeout(5.0)
+    three_seconds = clients.for_timeout(3.0)
+
+    assert clients.for_timeout(5.0) is five_seconds
+    assert three_seconds is not five_seconds
+    # The SDK keeps the timeout among its request settings; its own retries stay off.
+    assert three_seconds._params["request_timeout"] == 3.0
+    assert three_seconds.max_retries == 0
+
+
+# --- reading Voyage's errors ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        voyage_errors.RateLimitError("slow down", http_status=429),
+        voyage_errors.ServerError("broken", http_status=500),
+        voyage_errors.APIError("bad gateway", http_status=502),
+        voyage_errors.Timeout("timed out"),
+        voyage_errors.APIConnectionError("no connection"),
+    ],
+)
+def test_voyage_rate_limit_server_and_network_errors_are_retryable(error):
+    verdict = classify_voyage_error(error)
+
+    assert verdict.retryable is True
+    assert verdict.server_wait_seconds is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        voyage_errors.AuthenticationError("bad key", http_status=401),
+        voyage_errors.InvalidRequestError("bad input", http_status=400),
+        voyage_errors.MalformedRequestError("unreadable", http_status=422),
+        ValueError("not from Voyage"),
+    ],
+)
+def test_voyage_auth_bad_request_and_unknown_errors_are_not_retryable(error):
+    assert classify_voyage_error(error).retryable is False

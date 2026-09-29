@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import RowMapping
 
 from kms.ai import get_embedder, get_reranker
+from kms.ai.errors import INTERACTIVE_POLICY, OPTIONAL_POLICY
 from kms.config import get_settings
 from kms.db import get_engine
 from kms.models import assets, search_units
@@ -110,7 +111,8 @@ def embed_query(model: str, query: str) -> tuple[float, ...]:
     Raises:
         Exception: A vendor error, raised as it comes; a failed call is not remembered.
     """
-    vectors = get_embedder().embed([query], "query")
+    # A search cannot run without its query's vector, so the call gets one quick retry.
+    vectors = get_embedder().embed([query], "query", INTERACTIVE_POLICY)
     return tuple(vectors[0])
 
 
@@ -147,7 +149,8 @@ def rerank_with_cache(query: str, documents: list[str]) -> list[float] | None:
 
     # The call is made outside the lock, so other searches are not held up by it.
     if unseen:
-        relevances = get_reranker().rerank(query, unseen)
+        # Relevance only adds to results the user already has, so it is never waited for.
+        relevances = get_reranker().rerank(query, unseen, OPTIONAL_POLICY)
         if relevances is None:
             return None
         with relevance_cache_lock:
@@ -312,7 +315,8 @@ def mark_closest_sentences(
         for sentence in sentences:
             sentence_texts.append(sentence.text)
     try:
-        vectors = get_embedder().embed(sentence_texts, "document")
+        # The sentence only adds to results the user already has, so it is never waited for.
+        vectors = get_embedder().embed(sentence_texts, "document", OPTIONAL_POLICY)
     except Exception as error:
         logger.warning("sentence_match_failed error=%s", type(error).__name__)
         return found

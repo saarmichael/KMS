@@ -15,6 +15,7 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import RowMapping
 
 from kms.ai import get_embedder, get_vision
+from kms.ai.errors import BACKGROUND_POLICY
 from kms.ai.interfaces import PhotoDetails
 from kms.ai.schema import Metadata, normalise
 from kms.blob import get_blob_store
@@ -152,8 +153,13 @@ def process(asset: RowMapping) -> None:
     data = get_blob_store().get(asset["sha256"])
     prepared = prepare_file(data, asset["asset_type"])
 
+    # No one waits for the worker, so its vendor calls ride out a short outage.
     description = get_vision().describe(
-        prepared.content, asset["asset_type"], asset["filename"], prepared.photo_details
+        prepared.content,
+        asset["asset_type"],
+        asset["filename"],
+        prepared.photo_details,
+        BACKGROUND_POLICY,
     )
     logger.info("asset_described asset_id=%s model=%s", asset["id"], description.model)
     metadata = normalise(description.metadata, asset["asset_type"])
@@ -161,7 +167,9 @@ def process(asset: RowMapping) -> None:
     units = build_units(
         asset["asset_type"], asset["filename"], metadata, prepared.prepared_image, prepared.chunks
     )
-    vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
+    vectors = get_embedder().embed(
+        [unit.embed_input for unit in units], "document", BACKGROUND_POLICY
+    )
     commit_ready(asset, metadata, description.model, units, vectors)
 
 

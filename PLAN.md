@@ -72,7 +72,8 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D53 | Cancel on the password prompt | The SPA's pages are sent with `Cache-Control: no-cache`, so the browser checks with the server, and so asks for the password, on every page load, instead of reusing a cached page whose API calls then all fail. Any `401` the UI still gets (Cancel pressed, or the password changed while a tab is open) replaces the app with a "Password needed" screen and a Reload button, which brings the browser's prompt back. `no-store` was weighed and gives nothing more; an inline error per component was the state that went unnoticed. Phase 9, item 6 | decided (Sep 28) |
 | D54 | Voyage batches in parallel | `VoyageEmbedder.embed` sends its batches of 100 at the same time from a thread pool of its own, `min(batches, EMBED_PARALLEL_CALLS)` threads, default 20 (a 2.5 MB text file's 19 batches in one round). One pool per call, not one shared by the app, so search's embed calls never wait behind an upload. Each batch keeps its own retries; a batch that still fails fails the whole call after the calls in flight finish, and vectors come back in input order as before. Recordings are unaffected (one per `embed()` call). The cap guards Voyage's tokens-per-minute limit on large uploads; requests per minute (2,000) are far off. Phase 9, item 7. Michael's addition | decided (Sep 28) |
 | D55 | Sift brand, palette and a light/dark theme | The Sift brand kit lives in `frontend/brand/` (logos, lockups, favicons, social image, the scripts that made them); the files the app serves are copied into `frontend/public/` (favicons, manifest, `og-image.png`) and `frontend/src/assets/` (the lockups). Two raw scales from the artwork, `sift` (orange) and `ink` (Bone to Night), and on top of them role colours (`page`, `surface`, `text`, `accent`, …) that components use; each role has a light value and a dark value under `[data-theme="dark"]` on `<html>`, so switching the attribute re-colours the page. Tailwind's `dark:` variant on every element and a flipped `ink` scale were weighed. Orange fills carry Ink text (about 5.4:1; white is about 2.9:1). Poppins, self-hosted through `@fontsource/poppins`. A toggle in the header's top corner switches the theme; the first visit follows the OS setting, a chosen theme is kept in `localStorage`, and an inline script in `index.html` sets it before the first paint. Link-preview tags point at the Railway URL; behind the password, previews show no image. Phase 9, item 8. Michael's addition (both themes and the toggle) | decided (Sep 28) |
-| D56 | Relevance from the reranker | A Voyage reranker (`rerank-2.5`, behind `RERANK_ENABLED`) scores the first `RERANK_CANDIDATES` (20) results of the requested order, after the filters, reading each one's snippet text; the API returns it as `relevance` (0 to 1) next to `score`, which keeps its meaning. A new order, `relevance`, the API's and the UI's default, sorts those candidates by relevance whatever their match kind (this replaces D50's rule that a reranker keeps each result in its tier); the results after them follow in score order. The other orders keep their order and still get relevance on their candidates, so the closeness bar means the same thing in every order. Results past the candidates, and every result while reranking is off, have `relevance: null` and a grey "Relevance not rated" bar. Each (model, query, text) pair's relevance is remembered (`RERANK_CACHE_SIZE` pairs, least recently used dropped), so a change of order or filter sends only texts not scored before. A failed rerank leaves `relevance` `null` and score order; the search succeeds. The `Reranker` interface returns relevances, and `NoOpReranker` returns none. Phase 9, item 1. Michael's addition (relevance over tiers by default, the 20 candidates) | decided (Sep 29) |
+| D56 | Relevance from the reranker | A Voyage reranker (`rerank-2.5`, behind `RERANK_ENABLED`) scores the first `RERANK_CANDIDATES` (20) results of the requested order, after the filters, reading each one's snippet text; the API returns it as `relevance` (0 to 1) next to `score`, which keeps its meaning. A new order, `relevance`, the API's and the UI's default, sorts those candidates by relevance whatever their match kind (this replaces D50's rule that a reranker keeps each result in its tier); the results after them follow in score order. The other orders keep their order and still get relevance on their candidates, so the closeness bar means the same thing in every order. Results past the candidates, and every result while reranking is off, have `relevance: null`. No cut-offs turn relevance into "good" or "bad" (amended Sep 29, Michael): the score is given as it is, and how the UI shows it is decided later. Each (model, query, text) pair's relevance is remembered (`RERANK_CACHE_SIZE` pairs, least recently used dropped), so a change of order or filter sends only texts not scored before. A failed rerank leaves `relevance` `null` and score order; the search succeeds. The `Reranker` interface returns relevances, and `NoOpReranker` returns none. Phase 9, item 1. Michael's addition (relevance over tiers by default, the 20 candidates) | decided (Sep 29) |
+| D57 | Retry policy chosen by the caller | Every vendor call (`describe`, `embed`, `rerank`) takes a required `RetryPolicy` (attempts, first wait, the longest server-requested wait honoured, timeout per request), chosen at the call site: `BACKGROUND_POLICY` for the worker and the CLI, `INTERACTIVE_POLICY` for the search query's embedding, `OPTIONAL_POLICY` (one attempt) for the closest sentences and the rerank, whose failure only drops a hint. Each adapter reads its own vendor's errors (`classify_gemini_error`, `classify_voyage_error`); `errors.py` keeps only the vendor-neutral loop and imports no SDK; Gemini's model fallback reads `is_overloaded` in `gemini.py`. The timeout travels with the policy: per request for Gemini, one client per timeout for Voyage (`VoyageClients`). One adapter instance per context (worker, search) was weighed and rejected: it cannot tell the search query from the optional search calls. Phase 9, item 9. Michael's addition | decided (Sep 29) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1116,15 +1117,15 @@ collection, upload, search. Ten minutes, the interviewer's script.
 
 | Part | What | Status |
 | --- | --- | --- |
-| 1 | Backend and contract: `VoyageReranker`, the relevance cache, the `relevance` order and field | done, tests green, awaiting review |
-| 2 | Frontend: the `relevance` field and order, the closeness bar from relevance, the grey unrated bar | plan approved |
+| 1 | Backend and contract: `VoyageReranker`, the relevance cache, the `relevance` order and field | done (723f1aa) |
+| 2 | Frontend: the `relevance` field and order; how relevance is shown to be re-planned (no cut-offs) | to re-plan |
 
 **Item 1 plan (approved Sep 29).** Settled: relevance is a new field, `score` unchanged; the candidates are
 the first `RERANK_CANDIDATES` (20, one page) of the requested order after the filters; the reranker reads each
 candidate's snippet text; every order gets relevance on its candidates, only `relevance` re-sorts by it; a
 failed rerank degrades quietly; the existing code is expanded, no fake reranker (with `AI_PROVIDER=fake` the
-reranker is the no-op and every `relevance` is `null`); no recording of rerank calls; band cut-offs are
-placeholders until the results are tested.
+reranker is the no-op and every `relevance` is `null`); no recording of rerank calls. Amended Sep 29 (Michael):
+no cut-offs at all; relevance is shown as a score and the results are sorted by it, its visual form decided later.
 
 - *`ai/interfaces.py`:* `Reranker.rerank(query: str, documents: list[str]) -> list[float] | None`: one
   relevance from 0 to 1 per document, in input order, or `None` when the reranker gives no relevance; vendor
@@ -1169,8 +1170,7 @@ placeholders until the results are tested.
   `test_search_api.py`, since it needs a whole search; the old `test_noop_reranker_keeps_order` is replaced.)
 - *Part 2, frontend:* `api/types.ts`: `relevance: number | null`, `'relevance'` in `SearchOrder`.
   `searchView.ts`: default order `'relevance'`. `SearchOptions.tsx`: "Most relevant" first.
-  `closeness.ts`: `closeness(relevance: number | null)`, bands from relevance at 0.75 / 0.5 / 0.25
-  (placeholders), `null` gives a grey bar titled "Relevance not rated". `mocks/store.ts`: relevance on the
+  `closeness.ts`: superseded Sep 29 (no cut-offs; to re-plan). `mocks/store.ts`: relevance on the
   first 20 mock results. Tests: none automated; checked in the browser (page 1, Show more, each order).
 2. **pg_trgm typo correction**: vocabulary table from `ts_stat`, trigram index, per-term correction before
    the keyword query. One migration, one unit test, one matrix row ("blak hair").
@@ -1436,6 +1436,67 @@ same time, batch sizes. No new file, no new dependency.
   dialogs, uploads, chips, closeness bars, the favicon; in Stage 2 the same in dark, the toggle, the choice kept
   over a reload, the OS setting when nothing is saved, no light flash on a dark load, the password screen in both),
   plus `npm run build` and `npm run lint`.
+
+9. **Retry policy chosen by the caller (D57)**: one retry policy served every vendor call, so a rate-limited
+   Voyage call could hold a search for about 21 s (4 attempts, waits of about 1, 4 and 16 s, 60 s timeouts),
+   and `errors.py` read every vendor's errors in one place. One part, on branch `retry-policy`, from
+   `reranker` (it edits `VoyageReranker`). Found Sep 29, while planning item 1.
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | `RetryPolicy` and three named policies, a classifier per vendor, `policy` on every vendor call, the timeout with the policy | done |
+
+**Item 9 plan (approved Sep 29).** Settled: the policy is a required parameter of every vendor call, chosen at
+the call site; constants in code, not settings; the worker's Voyage timeout goes from 60 to 120 s (one timeout
+per policy for both vendors; a timeout per vendor in the policy was weighed); the jitter is up to one first
+wait, not a fixed second. No new dependency, no migration, no contract change.
+
+| Policy | Attempts | First wait | Longest server wait honoured | Timeout per request | Used by |
+| --- | --- | --- | --- | --- | --- |
+| `BACKGROUND_POLICY` | 4 | 1 s (then 4, 16) | 60 s | 120 s | worker, CLI |
+| `INTERACTIVE_POLICY` | 2 | 0.5 s | 1 s | 5 s | search query embedding |
+| `OPTIONAL_POLICY` | 1 | none | none | 3 s | closest-sentence embedding, rerank |
+
+The worst case at search time is then about 11 s for the query (two 5 s attempts and the wait) and 3 s for
+each optional call, against 21 s of waits alone and 60 s per hung call before. Voyage answers a query
+embedding or a 20-text rerank in well under a second, so the timeouts only cut calls that are really lost.
+
+- *`ai/errors.py`:* `RetryPolicy(max_attempts: int, first_wait_seconds: float, max_server_wait_seconds:
+  float, timeout_seconds: float)`, frozen dataclass; `ErrorVerdict(retryable: bool, server_wait_seconds:
+  float | None)`, frozen dataclass; the three policies. `call_with_retries(call, description, classify:
+  Callable[[Exception], ErrorVerdict], policy: RetryPolicy) -> T`: waits `first_wait × 4^(n−1)` plus up to
+  `first_wait` of jitter, or the server's wait when it gave one; raises at once when the error is not
+  retryable or the server asks for more than `max_server_wait_seconds`; raises the last error when the
+  attempts run out; logs `vendor_retry` as now. `ErrorKind`, `classify`, `server_retry_delay`,
+  `MAX_CALL_ATTEMPTS` and `MAX_SERVER_WAIT_SECONDS` removed; no SDK imported.
+- *`ai/gemini.py`:* `classify_gemini_error(error: Exception) -> ErrorVerdict`: Gemini 429, 500, 502, 503,
+  504 and `httpx.TransportError` retryable, anything else not; the server wait read from `RetryInfo`.
+  `is_overloaded(error: Exception) -> bool`: a Gemini 429 or 503, for the model fallback. `describe(...,
+  policy)` sets the request's timeout from the policy (`GenerateContentConfig.http_options`).
+  `GEMINI_REQUEST_TIMEOUT_SECONDS` removed.
+- *`ai/voyage.py`:* `classify_voyage_error(error: Exception) -> ErrorVerdict`: today's Voyage rules, no
+  server wait. `VoyageClients(api_key: str)`, `for_timeout(seconds: float) -> voyageai.Client`: one client
+  per timeout, built on first use with the SDK's retries off, safe across threads. `VoyageEmbedder(clients:
+  VoyageClients, model, dims, parallel_calls)` and `VoyageReranker(clients: VoyageClients, model)`;
+  `embed(..., policy)` and `rerank(..., policy)` take the client for the policy's timeout.
+  `VOYAGE_REQUEST_TIMEOUT_SECONDS` removed.
+- *`ai/interfaces.py`:* `Vision.describe`, `Embedder.embed` and `Reranker.rerank` gain `policy: RetryPolicy`.
+  `ai/fake.py` and `ai/noop.py` take and ignore it; `ai/recorded.py` passes it to the real adapter and leaves
+  it out of the recording's key.
+- *`ai/__init__.py`:* one `VoyageClients` shared by `get_embedder()` and `get_reranker()`; the Gemini client
+  built without a fixed timeout.
+- *Callers:* `ingest/worker.py` and `cli.py` pass `BACKGROUND_POLICY`; `search/service.py`: `embed_query`
+  `INTERACTIVE_POLICY`, `mark_closest_sentences` and `rerank_with_cache` `OPTIONAL_POLICY`.
+- *Tests:* `test_errors.py` rewritten over a stub classifier: `test_retries_a_retryable_error_then_succeeds`,
+  `test_not_retryable_error_is_raised_at_once`, `test_gives_up_after_the_policy_attempts`,
+  `test_waits_as_long_as_the_server_asks`, `test_server_wait_over_the_policy_cap_is_raised_at_once`,
+  `test_one_attempt_policy_never_retries`. Today's classification tests move to `test_gemini_vision.py`
+  (`classify_gemini_error`, `is_overloaded`) and `test_voyage_embedder.py` (`classify_voyage_error`). New:
+  `test_request_timeout_follows_the_policy` (Gemini), `test_client_timeout_follows_the_policy` and
+  `test_one_client_per_timeout` (Voyage), `test_query_embedding_uses_interactive_policy` and
+  `test_sentences_and_rerank_use_optional_policy` (search service), `test_worker_calls_use_background_policy`.
+  The test stubs of every adapter gain the `policy` parameter. (As built: the Gemini tests also check that a
+  blocked answer is not retryable; the live tests pass `BACKGROUND_POLICY`.)
 
 Each is its own gate; each can be skipped without touching anything else.
 

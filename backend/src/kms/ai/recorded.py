@@ -12,6 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
+from kms.ai.errors import RetryPolicy
 from kms.ai.gemini import GeminiVision
 from kms.ai.interfaces import Description, Embedder, PhotoDetails, Vision
 from kms.ai.prompts import PROMPT_VERSION
@@ -62,6 +63,7 @@ class RecordedVision(Vision):
         asset_type: str,
         filename: str,
         photo_details: PhotoDetails | None,
+        policy: RetryPolicy,
     ) -> Description:
         """Return the recorded description, or ask Gemini and record its answer.
 
@@ -71,6 +73,8 @@ class RecordedVision(Vision):
             filename: Passed on to Gemini's logs; not part of the fingerprint, because Gemini
                 never sees it.
             photo_details: When and where the photo was taken.
+            policy: Passed on to Gemini on a miss; not part of the fingerprint, because it does
+                not change the answer.
 
         Returns:
             The metadata, validated but not normalised, and the model that answered.
@@ -104,7 +108,7 @@ class RecordedVision(Vision):
             metadata = Metadata.model_validate(recording["metadata"])
             return Description(metadata=metadata, model=recording["model"])
 
-        description = self.inner.describe(content, asset_type, filename, photo_details)
+        description = self.inner.describe(content, asset_type, filename, photo_details, policy)
         recording = {"model": description.model, "metadata": description.metadata.model_dump()}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(recording, indent=2))
@@ -132,13 +136,18 @@ class RecordedEmbedder(Embedder):
         self.model = inner.model
 
     def embed(
-        self, inputs: list[str | bytes], input_type: Literal["document", "query"]
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
     ) -> list[list[float]]:
         """Return the recorded vectors, or ask Voyage and record its answer.
 
         Args:
             inputs: A str is embedded as text, bytes as an image.
             input_type: "document" for stored content, "query" for a search query.
+            policy: Passed on to Voyage on a miss; not part of the fingerprint, because it does
+                not change the answer.
 
         Returns:
             One vector per input, in the same order.
@@ -169,7 +178,7 @@ class RecordedEmbedder(Embedder):
             recording = json.loads(path.read_text())
             return recording["vectors"]
 
-        vectors = self.inner.embed(inputs, input_type)
+        vectors = self.inner.embed(inputs, input_type, policy)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"vectors": vectors}))
         return vectors

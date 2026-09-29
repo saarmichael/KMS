@@ -1,9 +1,13 @@
 import io
+from typing import Literal
 
 from PIL import Image
 from sqlalchemy import text
 
-from kms.ai import get_embedder
+from kms.ai import get_embedder, set_embedder, set_vision
+from kms.ai.errors import BACKGROUND_POLICY, RetryPolicy
+from kms.ai.fake import FakeEmbedder, FakeVision
+from kms.ai.interfaces import Description, PhotoDetails
 from kms.ai.schema import Metadata, normalise
 from kms.config import get_settings
 from kms.ingest.chunker import chunk_text
@@ -243,8 +247,61 @@ def test_stale_worker_cannot_commit(db, blob_store):
         Metadata(title="t", description="d", tags=[], visible_text="", image_type=None), "text"
     )
     units = build_units("text", "slow.txt", metadata, None, [])
-    vectors = get_embedder().embed([unit.embed_input for unit in units], "document")
+    vectors = get_embedder().embed(
+        [unit.embed_input for unit in units], "document", BACKGROUND_POLICY
+    )
 
     assert commit_ready(stale_claim, metadata, "fake-vision", units, vectors) is False
     assert load_asset(db, asset_id)["status"] == "processing"
     assert load_units(db, asset_id) == []
+
+
+class PolicyRecordingVision(FakeVision):
+    """The fake vision adapter, remembering the policy of every call."""
+
+    def __init__(self):
+        self.policies: list[RetryPolicy] = []
+
+    def describe(
+        self,
+        content: bytes | str,
+        asset_type: str,
+        filename: str,
+        photo_details: PhotoDetails | None,
+        policy: RetryPolicy,
+    ) -> Description:
+        self.policies.append(policy)
+        return super().describe(content, asset_type, filename, photo_details, policy)
+
+
+class PolicyRecordingEmbedder(FakeEmbedder):
+    """The fake embedder, remembering the policy of every call."""
+
+    def __init__(self, dims: int):
+        super().__init__(dims)
+        self.policies: list[RetryPolicy] = []
+
+    def embed(
+        self,
+        inputs: list[str | bytes],
+        input_type: Literal["document", "query"],
+        policy: RetryPolicy,
+    ) -> list[list[float]]:
+        self.policies.append(policy)
+        return super().embed(inputs, input_type, policy)
+
+
+def test_worker_calls_use_background_policy(db, blob_store):
+    vision = PolicyRecordingVision()
+    embedder = PolicyRecordingEmbedder(get_settings().embedding_dims)
+    set_vision(vision)
+    set_embedder(embedder)
+    try:
+        upload("demo", "note.txt", NOTE)
+        assert run_once() is True
+    finally:
+        set_vision(None)
+        set_embedder(None)
+
+    assert vision.policies == [BACKGROUND_POLICY]
+    assert embedder.policies == [BACKGROUND_POLICY]

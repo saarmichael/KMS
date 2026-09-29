@@ -1,6 +1,7 @@
 import pytest
 
 from kms.ai import get_embedder, get_vision, recorded, set_embedder, set_vision
+from kms.ai.errors import BACKGROUND_POLICY
 from kms.ai.gemini import GeminiVision
 from kms.ai.interfaces import Description, PhotoDetails
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
@@ -26,7 +27,7 @@ class StubVision:
         self.error = error
         self.calls = 0
 
-    def describe(self, content, asset_type, filename, photo_details):
+    def describe(self, content, asset_type, filename, photo_details, policy):
         self.calls += 1
         if self.error is not None:
             raise self.error
@@ -41,7 +42,7 @@ class StubEmbedder:
         self.dims = 2
         self.calls = 0
 
-    def embed(self, inputs, input_type):
+    def embed(self, inputs, input_type, policy):
         self.calls += 1
         return [[0.5, float(position)] for position in range(len(inputs))]
 
@@ -50,8 +51,8 @@ def test_vision_second_call_is_replayed(tmp_path):
     inner = StubVision()
     vision = RecordedVision(inner, tmp_path)
 
-    first = vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS)
-    second = vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS)
+    first = vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS, BACKGROUND_POLICY)
+    second = vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS, BACKGROUND_POLICY)
 
     assert inner.calls == 1
     assert second == first
@@ -63,8 +64,8 @@ def test_vision_ignores_the_filename(tmp_path):
     inner = StubVision()
     vision = RecordedVision(inner, tmp_path)
 
-    vision.describe("some notes", "text", "notes.txt", None)
-    vision.describe("some notes", "text", "renamed.txt", None)
+    vision.describe("some notes", "text", "notes.txt", None, BACKGROUND_POLICY)
+    vision.describe("some notes", "text", "renamed.txt", None, BACKGROUND_POLICY)
 
     assert inner.calls == 1
 
@@ -73,7 +74,7 @@ def test_vision_ignores_the_filename(tmp_path):
 def test_vision_changed_request_is_not_replayed(tmp_path, monkeypatch, change):
     inner = StubVision()
     vision = RecordedVision(inner, tmp_path)
-    vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS)
+    vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", PHOTO_DETAILS, BACKGROUND_POLICY)
 
     content = b"jpeg bytes"
     photo_details = PHOTO_DETAILS
@@ -85,7 +86,7 @@ def test_vision_changed_request_is_not_replayed(tmp_path, monkeypatch, change):
         content = b"other jpeg bytes"
     else:
         photo_details = None
-    vision.describe(content, "image", "IMG_1.jpg", photo_details)
+    vision.describe(content, "image", "IMG_1.jpg", photo_details, BACKGROUND_POLICY)
 
     assert inner.calls == 2
 
@@ -94,8 +95,8 @@ def test_embed_second_call_is_replayed(tmp_path):
     inner = StubEmbedder()
     embedder = RecordedEmbedder(inner, tmp_path)
 
-    first = embedder.embed(["a note", b"image bytes"], "document")
-    second = embedder.embed(["a note", b"image bytes"], "document")
+    first = embedder.embed(["a note", b"image bytes"], "document", BACKGROUND_POLICY)
+    second = embedder.embed(["a note", b"image bytes"], "document", BACKGROUND_POLICY)
 
     assert inner.calls == 1
     assert second == first
@@ -106,8 +107,8 @@ def test_embed_changed_input_type_is_not_replayed(tmp_path):
     inner = StubEmbedder()
     embedder = RecordedEmbedder(inner, tmp_path)
 
-    embedder.embed(["red car"], "document")
-    embedder.embed(["red car"], "query")
+    embedder.embed(["red car"], "document", BACKGROUND_POLICY)
+    embedder.embed(["red car"], "query", BACKGROUND_POLICY)
 
     assert inner.calls == 2
 
@@ -117,11 +118,11 @@ def test_failed_call_is_not_recorded(tmp_path):
     vision = RecordedVision(inner, tmp_path)
 
     with pytest.raises(RuntimeError):
-        vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", None)
+        vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", None, BACKGROUND_POLICY)
 
     assert not (tmp_path / "vision").exists()
     inner.error = None
-    vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", None)
+    vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", None, BACKGROUND_POLICY)
     assert inner.calls == 2
 
 

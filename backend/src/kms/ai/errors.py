@@ -1,131 +1,100 @@
-"""What to do when a vendor call fails: wait and try again, move to the next model, or give up.
+"""How hard to try a vendor call again when it fails.
 
-`classify` sorts every error into one of three kinds, and `call_with_retries` runs one call,
-retrying it while the error is worth retrying. The vendor SDKs' own retries stay off, so this is
-the only place that decides how long to wait and how often to try.
+Each caller picks a `RetryPolicy`, because how long a call may take depends on who waits for it: the
+worker can ride out an outage, a search cannot keep its user waiting. Each vendor adapter says what
+its own errors mean, as an `ErrorVerdict`. `call_with_retries` puts the two together, and knows
+nothing about any vendor. The vendor SDKs' own retries stay off, so this is the only place that
+decides how long to wait and how often to try.
 """
 
 import logging
 from collections.abc import Callable
-from enum import StrEnum
-from http import HTTPStatus
+from dataclasses import dataclass
 
-import httpx
 import tenacity
-from google.genai import errors as gemini_errors
-from voyageai import error as voyage_errors
 
 logger = logging.getLogger(__name__)
 
 
-class ErrorKind(StrEnum):
-    """What the caller should do about a failed vendor call.
+@dataclass(frozen=True)
+class RetryPolicy:
+    """How hard to try one vendor call.
 
-    A StrEnum, so each kind prints as its plain value in the log.
+    Attributes:
+        max_attempts: The most calls in all, the first one included; 1 never retries.
+        first_wait_seconds: The wait before the first retry; each later wait is four times the
+            one before, plus up to this much again of random jitter so that callers do not retry
+            in step.
+        max_server_wait_seconds: The longest wait honoured when the vendor asks for one; a
+            longer ask means the quota is out for a while, and the error is raised at once.
+        timeout_seconds: How long one request may take before it counts as lost.
     """
 
-    TRANSIENT = "transient"
-    OVERLOADED = "overloaded"
-    PERMANENT = "permanent"
+    max_attempts: int
+    first_wait_seconds: float
+    max_server_wait_seconds: float
+    timeout_seconds: float
 
 
-# One try and three retries: the waits add up to about 21 seconds, long enough to ride out a
-# short outage without holding a worker on a vendor that is really down.
-MAX_CALL_ATTEMPTS = 4
-# A server that asks for a longer pause has run out of quota for a while; waiting would only
-# hold the worker, so the error is raised at once.
-MAX_SERVER_WAIT_SECONDS = 60
+@dataclass(frozen=True)
+class ErrorVerdict:
+    """What a vendor adapter makes of one of its errors.
 
-
-def classify(error: Exception) -> ErrorKind:
-    """Sort a vendor error by what the caller should do about it.
-
-    Args:
-        error: Whatever the vendor call raised.
-
-    Returns:
-        OVERLOADED when another model may answer now, TRANSIENT when the same call may work
-        after a wait, PERMANENT when trying again cannot help. Never raises.
+    Attributes:
+        retryable: True when the same call may work after a wait.
+        server_wait_seconds: How long the vendor asked us to wait, or None when it did not say.
     """
-    if isinstance(error, gemini_errors.APIError):
-        # Every Gemini quota is per model, so a model out of quota does not stop the next one.
-        if error.code in (HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.SERVICE_UNAVAILABLE):
-            return ErrorKind.OVERLOADED
-        if error.code in (
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            HTTPStatus.BAD_GATEWAY,
-            HTTPStatus.GATEWAY_TIMEOUT,
-        ):
-            return ErrorKind.TRANSIENT
-        return ErrorKind.PERMANENT
-    # The Gemini SDK lets timeouts and dropped connections through as raw httpx errors.
-    if isinstance(error, httpx.TransportError):
-        return ErrorKind.TRANSIENT
-    if isinstance(error, voyage_errors.VoyageError):
-        transient_errors = (
-            voyage_errors.RateLimitError,
-            voyage_errors.ServerError,
-            voyage_errors.ServiceUnavailableError,
-            voyage_errors.Timeout,
-            voyage_errors.APIConnectionError,
-            voyage_errors.TryAgain,
-        )
-        if isinstance(error, transient_errors):
-            return ErrorKind.TRANSIENT
-        status = error.http_status
-        if status is not None and (
-            status == HTTPStatus.TOO_MANY_REQUESTS or status >= HTTPStatus.INTERNAL_SERVER_ERROR
-        ):
-            return ErrorKind.TRANSIENT
-        return ErrorKind.PERMANENT
-    return ErrorKind.PERMANENT
+
+    retryable: bool
+    server_wait_seconds: float | None
 
 
-def server_retry_delay(error: Exception) -> float | None:
-    """Read how long Gemini asked us to wait before trying again.
-
-    Gemini puts the wait in a RetryInfo entry of the error body, as a string like "33s".
-
-    Args:
-        error: Whatever the vendor call raised.
-
-    Returns:
-        The wait in seconds, or None when the error is not from Gemini, has no RetryInfo, or its
-        body is not in the expected shape. Never raises.
-    """
-    if not isinstance(error, gemini_errors.APIError):
-        return None
-    try:
-        for detail in error.details["error"]["details"]:
-            if detail["@type"] == "type.googleapis.com/google.rpc.RetryInfo":
-                return float(detail["retryDelay"].removesuffix("s"))
-    except (KeyError, TypeError, AttributeError, ValueError):
-        return None
-    return None
+# The worker and the command line: no one is waiting, so a short outage is ridden out. The waits
+# of about 1, 4 and 16 seconds add up to about 21; a large image on a slow model may take two
+# minutes.
+BACKGROUND_POLICY = RetryPolicy(
+    max_attempts=4, first_wait_seconds=1.0, max_server_wait_seconds=60.0, timeout_seconds=120.0
+)
+# A call a search cannot do without: one quick retry covers a dropped connection or a brief rate
+# limit, and the timeout cuts a lost call long before the user gives up.
+INTERACTIVE_POLICY = RetryPolicy(
+    max_attempts=2, first_wait_seconds=0.5, max_server_wait_seconds=1.0, timeout_seconds=5.0
+)
+# A call that only adds to results the user already has: never retried, since losing it costs
+# less than a wait.
+OPTIONAL_POLICY = RetryPolicy(
+    max_attempts=1, first_wait_seconds=0.0, max_server_wait_seconds=0.0, timeout_seconds=3.0
+)
 
 
-def call_with_retries[T](call: Callable[[], T], description: str) -> T:
+def call_with_retries[T](
+    call: Callable[[], T],
+    description: str,
+    classify: Callable[[Exception], ErrorVerdict],
+    policy: RetryPolicy,
+) -> T:
     """Run one vendor call, waiting and trying again while the error is worth retrying.
-
-    A permanent error is raised at once. Any other error is retried, up to MAX_CALL_ATTEMPTS
-    calls in all. The wait is the one the server asked for when it asked; otherwise about 1, 4
-    and 16 seconds, plus up to a second of jitter so that workers do not retry in step.
 
     Args:
         call: The vendor call, with its arguments already bound.
         description: What the call is, for the log.
+        classify: The vendor's reading of its own errors.
+        policy: How hard to try.
 
     Returns:
         What `call` returned.
 
     Raises:
-        Exception: The error `call` raised, unchanged, when it is permanent, when the server asks
-            for a wait over MAX_SERVER_WAIT_SECONDS, or when the last attempt fails.
+        Exception: The error `call` raised, unchanged, when it is not retryable, when the vendor
+            asks for a wait over the policy's `max_server_wait_seconds`, or when the last
+            attempt fails.
     """
-    backoff = tenacity.wait_exponential(multiplier=1, exp_base=4) + tenacity.wait_random(0, 1)
+    backoff = tenacity.wait_exponential(
+        multiplier=policy.first_wait_seconds, exp_base=4
+    ) + tenacity.wait_random(0, policy.first_wait_seconds)
 
     def should_retry(error: BaseException) -> bool:
-        """Retry an error that is not permanent, unless the server asks for too long a wait.
+        """Retry an error the vendor calls retryable, unless it asks for too long a wait.
 
         Args:
             error: The error the last attempt raised.
@@ -133,10 +102,14 @@ def call_with_retries[T](call: Callable[[], T], description: str) -> T:
         Returns:
             True to wait and call again, False to raise the error.
         """
-        if not isinstance(error, Exception) or classify(error) == ErrorKind.PERMANENT:
+        if not isinstance(error, Exception):
             return False
-        delay = server_retry_delay(error)
-        return delay is None or delay <= MAX_SERVER_WAIT_SECONDS
+        verdict = classify(error)
+        if not verdict.retryable:
+            return False
+        if verdict.server_wait_seconds is None:
+            return True
+        return verdict.server_wait_seconds <= policy.max_server_wait_seconds
 
     def wait_seconds(retry_state: tenacity.RetryCallState) -> float:
         """Choose the wait before the next attempt.
@@ -145,11 +118,11 @@ def call_with_retries[T](call: Callable[[], T], description: str) -> T:
             retry_state: Tenacity's record of the attempts so far.
 
         Returns:
-            The server's wait when it gave one, otherwise the backoff with jitter.
+            The vendor's wait when it gave one, otherwise the backoff with jitter.
         """
-        delay = server_retry_delay(retry_state.outcome.exception())
-        if delay is not None:
-            return delay
+        verdict = classify(retry_state.outcome.exception())
+        if verdict.server_wait_seconds is not None:
+            return verdict.server_wait_seconds
         return backoff(retry_state)
 
     def log_retry(retry_state: tenacity.RetryCallState) -> None:
@@ -158,20 +131,18 @@ def call_with_retries[T](call: Callable[[], T], description: str) -> T:
         Args:
             retry_state: Tenacity's record of the attempts so far.
         """
-        error = retry_state.outcome.exception()
         logger.warning(
-            "vendor_retry call=%s attempt=%d kind=%s wait_s=%.1f error=%r",
+            "vendor_retry call=%s attempt=%d wait_s=%.1f error=%r",
             description,
             retry_state.attempt_number,
-            classify(error),
             retry_state.next_action.sleep,
-            error,
+            retry_state.outcome.exception(),
         )
 
     retrying = tenacity.Retrying(
         retry=tenacity.retry_if_exception(should_retry),
         wait=wait_seconds,
-        stop=tenacity.stop_after_attempt(MAX_CALL_ATTEMPTS),
+        stop=tenacity.stop_after_attempt(policy.max_attempts),
         before_sleep=log_retry,
         reraise=True,
     )
