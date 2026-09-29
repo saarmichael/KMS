@@ -1,4 +1,5 @@
-"""The real embedder: Voyage turns text and images into vectors in one shared space.
+"""The real embedder: Voyage turns text and images into vectors in one shared space. And the real
+reranker: Voyage reads a query and each search result together and scores how well they match.
 
 Inputs go to Voyage in batches sent at the same time, each batch retried on its own, and the
 vectors come back in the order the inputs were given. The answer is checked before it is
@@ -16,7 +17,7 @@ import voyageai
 from PIL import Image
 
 from kms.ai.errors import call_with_retries
-from kms.ai.interfaces import Embedder
+from kms.ai.interfaces import Embedder, Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -133,3 +134,64 @@ class VoyageEmbedder(Embedder):
             duration_ms,
         )
         return vectors
+
+
+class VoyageReranker(Reranker):
+    """Scores search results against a query with one Voyage rerank model.
+
+    Attributes:
+        client: The Voyage client, built without the SDK's own retries.
+        model: The rerank model's id.
+    """
+
+    def __init__(self, client: voyageai.Client, model: str):
+        """Create the reranker.
+
+        Args:
+            client: The Voyage client to call through.
+            model: The rerank model's id.
+        """
+        self.client = client
+        self.model = model
+
+    def rerank(self, query: str, documents: list[str]) -> list[float]:
+        """Score each document against the query in one Voyage call.
+
+        Args:
+            query: The query as typed.
+            documents: One text per result. A text too long for the model is cut short by
+                Voyage rather than refused.
+
+        Returns:
+            One relevance from 0 to 1 per document, in the order of `documents`; [] for no
+            documents, without a call.
+
+        Raises:
+            Exception: A vendor error, unchanged, when it is permanent or the retries ran out.
+            ValueError: Voyage returned a different number of scores than documents.
+        """
+        if not documents:
+            return []
+
+        rerank_call = functools.partial(
+            self.client.rerank,
+            query=query,
+            documents=documents,
+            model=self.model,
+            truncation=True,
+        )
+        started = time.perf_counter()
+        answer = call_with_retries(rerank_call, "voyage_rerank")
+        duration_ms = (time.perf_counter() - started) * 1000
+
+        if len(answer.results) != len(documents):
+            raise ValueError(
+                f"Voyage returned {len(answer.results)} scores for {len(documents)} documents"
+            )
+        # Voyage lists the results best first; each carries the position of its document.
+        relevances = [0.0] * len(documents)
+        for result in answer.results:
+            relevances[result.index] = result.relevance_score
+
+        logger.info("voyage_reranked documents=%d duration_ms=%d", len(documents), duration_ms)
+        return relevances

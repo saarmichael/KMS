@@ -72,6 +72,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D53 | Cancel on the password prompt | The SPA's pages are sent with `Cache-Control: no-cache`, so the browser checks with the server, and so asks for the password, on every page load, instead of reusing a cached page whose API calls then all fail. Any `401` the UI still gets (Cancel pressed, or the password changed while a tab is open) replaces the app with a "Password needed" screen and a Reload button, which brings the browser's prompt back. `no-store` was weighed and gives nothing more; an inline error per component was the state that went unnoticed. Phase 9, item 6 | decided (Sep 28) |
 | D54 | Voyage batches in parallel | `VoyageEmbedder.embed` sends its batches of 100 at the same time from a thread pool of its own, `min(batches, EMBED_PARALLEL_CALLS)` threads, default 20 (a 2.5 MB text file's 19 batches in one round). One pool per call, not one shared by the app, so search's embed calls never wait behind an upload. Each batch keeps its own retries; a batch that still fails fails the whole call after the calls in flight finish, and vectors come back in input order as before. Recordings are unaffected (one per `embed()` call). The cap guards Voyage's tokens-per-minute limit on large uploads; requests per minute (2,000) are far off. Phase 9, item 7. Michael's addition | decided (Sep 28) |
 | D55 | Sift brand, palette and a light/dark theme | The Sift brand kit lives in `frontend/brand/` (logos, lockups, favicons, social image, the scripts that made them); the files the app serves are copied into `frontend/public/` (favicons, manifest, `og-image.png`) and `frontend/src/assets/` (the lockups). Two raw scales from the artwork, `sift` (orange) and `ink` (Bone to Night), and on top of them role colours (`page`, `surface`, `text`, `accent`, …) that components use; each role has a light value and a dark value under `[data-theme="dark"]` on `<html>`, so switching the attribute re-colours the page. Tailwind's `dark:` variant on every element and a flipped `ink` scale were weighed. Orange fills carry Ink text (about 5.4:1; white is about 2.9:1). Poppins, self-hosted through `@fontsource/poppins`. A toggle in the header's top corner switches the theme; the first visit follows the OS setting, a chosen theme is kept in `localStorage`, and an inline script in `index.html` sets it before the first paint. Link-preview tags point at the Railway URL; behind the password, previews show no image. Phase 9, item 8. Michael's addition (both themes and the toggle) | decided (Sep 28) |
+| D56 | Relevance from the reranker | A Voyage reranker (`rerank-2.5`, behind `RERANK_ENABLED`) scores the first `RERANK_CANDIDATES` (20) results of the requested order, after the filters, reading each one's snippet text; the API returns it as `relevance` (0 to 1) next to `score`, which keeps its meaning. A new order, `relevance`, the API's and the UI's default, sorts those candidates by relevance whatever their match kind (this replaces D50's rule that a reranker keeps each result in its tier); the results after them follow in score order. The other orders keep their order and still get relevance on their candidates, so the closeness bar means the same thing in every order. Results past the candidates, and every result while reranking is off, have `relevance: null` and a grey "Relevance not rated" bar. Each (model, query, text) pair's relevance is remembered (`RERANK_CACHE_SIZE` pairs, least recently used dropped), so a change of order or filter sends only texts not scored before. A failed rerank leaves `relevance` `null` and score order; the search succeeds. The `Reranker` interface returns relevances, and `NoOpReranker` returns none. Phase 9, item 1. Michael's addition (relevance over tiers by default, the 20 candidates) | decided (Sep 29) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1108,8 +1109,69 @@ collection, upload, search. Ten minutes, the interviewer's script.
 
 ## Phase 9 — Optional, in this order
 
-1. **Reranker**: `VoyageReranker` (rerank-2.5) behind `RERANK_ENABLED`, rescoring the first page by
-   metadata-unit text. One unit test (order changes, candidate set does not) and one matrix row.
+1. **Reranker and relevance (D56)**: `VoyageReranker` (rerank-2.5) behind `RERANK_ENABLED` scores the first
+   20 results against the query, so each card can show how close a match really is, not only where it ranks.
+   Two parts, on branch `reranker`. Asked Sep 28: the top result always showed "Close match", because `score`
+   is relative to the best result of the query.
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | Backend and contract: `VoyageReranker`, the relevance cache, the `relevance` order and field | done, tests green, awaiting review |
+| 2 | Frontend: the `relevance` field and order, the closeness bar from relevance, the grey unrated bar | plan approved |
+
+**Item 1 plan (approved Sep 29).** Settled: relevance is a new field, `score` unchanged; the candidates are
+the first `RERANK_CANDIDATES` (20, one page) of the requested order after the filters; the reranker reads each
+candidate's snippet text; every order gets relevance on its candidates, only `relevance` re-sorts by it; a
+failed rerank degrades quietly; the existing code is expanded, no fake reranker (with `AI_PROVIDER=fake` the
+reranker is the no-op and every `relevance` is `null`); no recording of rerank calls; band cut-offs are
+placeholders until the results are tested.
+
+- *`ai/interfaces.py`:* `Reranker.rerank(query: str, documents: list[str]) -> list[float] | None`: one
+  relevance from 0 to 1 per document, in input order, or `None` when the reranker gives no relevance; vendor
+  errors raised as they come.
+- *`ai/noop.py`:* `NoOpReranker.rerank` returns `None`, never raises.
+- *`ai/voyage.py`:* new `VoyageReranker(client: voyageai.Client, model: str)`. `rerank(query, documents) ->
+  list[float]`: `[]` for no documents without a call; otherwise one `client.rerank(query, documents, model,
+  truncation=True)` through `call_with_retries(..., "voyage_rerank")`, the results put back in input order by
+  their `index`; `ValueError` when the count differs from the documents'. Logs `voyage_reranked documents=%d
+  duration_ms=%d`.
+- *`ai/__init__.py`:* `get_reranker() -> Reranker`, built once: `VoyageReranker` over `RERANK_MODEL` with its
+  own Voyage client (same options as the embedder's) when `RERANK_ENABLED` is true and `AI_PROVIDER` is
+  `real`; `NoOpReranker` otherwise. `ValueError` when the real one has no `VOYAGE_API_KEY`.
+- *`config.py`:* `rerank_candidates: int = Field(default=20, ge=1)`, `rerank_cache_size: int =
+  Field(default=2000, ge=1)` (pairs), in the search section; `rerank_enabled` stays `False` by default.
+  `backend/.env.example`: `RERANK_ENABLED`, `RERANK_MODEL`, `RERANK_CANDIDATES`, `RERANK_CACHE_SIZE`.
+- *`search/order.py`:* `SearchOrder.RELEVANCE = "relevance"`; `order_matches` leaves it in score order (the
+  re-sort by relevance happens after the rerank).
+- *`search/service.py`:* `FoundAsset` gains `relevance: float | None`, `None` from `fetch_found_assets`.
+  New `rerank_with_cache(query: str, documents: list[str]) -> list[float] | None`: a module-level
+  `OrderedDict` of `(rerank model, query, text) -> relevance`, at most `RERANK_CACHE_SIZE` pairs, the least
+  recently used dropped; only unseen texts go to one `rerank` call; relevances in input order; `None` when the
+  reranker gives `None`; vendor errors raised. New `score_relevance(query: str, found: list[FoundAsset],
+  order: SearchOrder) -> list[FoundAsset]`: sets each `relevance` from the snippet texts; for `RELEVANCE`
+  sorts by it, highest first (stable); unchanged when there is no relevance; on a vendor error logs
+  `rerank_failed error=<type>` as a warning and returns `found` unchanged. `search()`: when the page starts
+  inside the candidates, fetches the candidates and the rest of the page in one `fetch_found_assets`, scores
+  the candidates, then slices the page; otherwise as before. The per-page rerank step is removed;
+  `search_done` gains `reranked=`.
+- *API:* `api/schemas.py` `SearchResult.relevance: float | None`; `api/search.py` default `order` is
+  `relevance`, `relevance` returned. Contract: the `order` value and default, `relevance: number | null` and
+  how to read it, D56.
+- *Tests:* new `tests/unit/test_voyage_reranker.py`: `test_relevance_comes_back_in_input_order`,
+  `test_no_documents_makes_no_call`, `test_wrong_count_raises`. `test_order.py`:
+  `test_relevance_order_keeps_score_order`. `test_search_service.py` (stub reranker):
+  `test_relevance_order_sorts_candidates_by_relevance`, `test_other_orders_keep_order_with_relevance`,
+  `test_results_past_the_candidates_have_no_relevance`, `test_reranker_reads_snippet_text`,
+  `test_rerank_error_leaves_score_order`, `test_noop_reranker_gives_no_relevance`,
+  `test_switching_order_makes_no_second_rerank_call`, `test_only_unseen_texts_are_sent`,
+  `test_cache_drops_least_recently_used_pair`. `test_search_api.py`: `test_default_order_is_relevance`,
+  `test_page_two_has_no_relevance`. (As built: `test_results_past_the_candidates_have_no_relevance` sits in
+  `test_search_api.py`, since it needs a whole search; the old `test_noop_reranker_keeps_order` is replaced.)
+- *Part 2, frontend:* `api/types.ts`: `relevance: number | null`, `'relevance'` in `SearchOrder`.
+  `searchView.ts`: default order `'relevance'`. `SearchOptions.tsx`: "Most relevant" first.
+  `closeness.ts`: `closeness(relevance: number | null)`, bands from relevance at 0.75 / 0.5 / 0.25
+  (placeholders), `null` gives a grey bar titled "Relevance not rated". `mocks/store.ts`: relevance on the
+  first 20 mock results. Tests: none automated; checked in the browser (page 1, Show more, each order).
 2. **pg_trgm typo correction**: vocabulary table from `ts_stat`, trigram index, per-term correction before
    the keyword query. One migration, one unit test, one matrix row ("blak hair").
 3. **Closest sentence of a match by meaning (D51)**: for every `semantic` result, the sentence of its

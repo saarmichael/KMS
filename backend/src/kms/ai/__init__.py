@@ -13,13 +13,14 @@ from kms.ai.gemini import GEMINI_REQUEST_TIMEOUT_SECONDS, GeminiVision
 from kms.ai.interfaces import Embedder, Reranker, Vision
 from kms.ai.noop import NoOpReranker
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
-from kms.ai.voyage import VOYAGE_REQUEST_TIMEOUT_SECONDS, VoyageEmbedder
+from kms.ai.voyage import VOYAGE_REQUEST_TIMEOUT_SECONDS, VoyageEmbedder, VoyageReranker
 from kms.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 _vision: Vision | None = None
 _embedder: Embedder | None = None
+_reranker: Reranker | None = None
 
 
 def get_vision() -> Vision:
@@ -98,13 +99,34 @@ def get_embedder() -> Embedder:
 
 
 def get_reranker() -> Reranker:
-    """Return the reranker that orders each page of search results.
+    """Return the shared reranker that scores the top search results, building it from settings
+    on first use.
 
     Returns:
-        A NoOpReranker, so every page keeps the order fusion gave it. Reranking with a real
-        model is an option not built yet.
+        VoyageReranker over RERANK_MODEL when RERANK_ENABLED is true and AI_PROVIDER is "real";
+        otherwise NoOpReranker, which gives no relevance.
+
+    Raises:
+        ValueError: The Voyage reranker is chosen and VOYAGE_API_KEY is not set.
     """
-    return NoOpReranker()
+    global _reranker
+    if _reranker is None:
+        settings = get_settings()
+        if settings.rerank_enabled and settings.ai_provider == "real":
+            if not settings.voyage_api_key:
+                raise ValueError("VOYAGE_API_KEY is not set")
+            # Its own client, built like the embedder's: the SDK's own retries off.
+            client = voyageai.Client(
+                api_key=settings.voyage_api_key,
+                max_retries=0,
+                timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
+            )
+            _reranker = VoyageReranker(client, settings.rerank_model)
+            logger.info("ai_adapters_selected provider=real reranker=%s", settings.rerank_model)
+        else:
+            _reranker = NoOpReranker()
+            logger.info("ai_adapters_selected reranker=none")
+    return _reranker
 
 
 def set_vision(vision: Vision | None) -> None:

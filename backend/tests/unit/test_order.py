@@ -75,3 +75,9 @@ def test_tiered_orders_exact_then_partial_then_semantic():
     found = matches(SEMANTIC, PARTIAL, EXACT, SEMANTIC, PARTIAL)
 
     assert asset_numbers(order_matches(found, SearchOrder.TIERED)) == [3, 2, 5, 1, 4]
+
+
+def test_relevance_order_keeps_score_order():
+    found = matches(SEMANTIC, EXACT, PARTIAL)
+
+    assert asset_numbers(order_matches(found, SearchOrder.RELEVANCE)) == [1, 2, 3]

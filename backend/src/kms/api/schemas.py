@@ -118,10 +118,11 @@ class Snippet(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """One asset found by a search, with its score and why it matched."""
+    """One asset found by a search, with its score, its relevance and why it matched."""
 
     asset: Asset
     score: float
+    relevance: float | None
     snippet: Snippet
     match: MatchKind
 

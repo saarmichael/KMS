@@ -287,7 +287,7 @@ Deletes database rows only; the files stay on disk (D13).
 | `collection` | string | yes | Name rule. Search never crosses collections |
 | `q` | string | yes | The query as typed. Empty or only spaces → `422` |
 | `page` | integer | no, default `1` | `1` or more. Pages hold 20 results (D32) |
-| `order` | string | no, default `exact_first` | `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
+| `order` | string | no, default `relevance` | `relevance`: the top 20 by `relevance`, whatever their `match`, the rest by score (D56). `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
 | `match` | string, repeatable | no, default all | Keep only results whose `match` is one of these: `exact`, `partial`, `semantic`. Repeated for several: `match=exact&match=partial` |
 | `asset_type` | string, repeatable | no, default all | Keep only `image` or `text` assets |
 | `found_in` | string, repeatable | no, default all | Keep only matches in these parts of an asset: `content`, `metadata`, `image`, `visible_text`, `filename` (the values of `snippet.kind`). The snippet then comes from a chosen part |
@@ -310,6 +310,7 @@ type SearchResponse = {
 type SearchResult = {
   asset: Asset;              // always status "ready"
   score: number;             // 0 to 1; 1 is the best result of the whole query (not of the page)
+  relevance: number | null;  // 0 to 1: how well it answers the query, as the reranker judged it; null when not scored (D56)
   snippet: Snippet;          // why this asset matched
   match: "exact" | "partial" | "semantic";   // how it matched (D50)
 };
@@ -327,6 +328,12 @@ type Snippet = {
 **How to read a result.**
 - `score` is for display only: the UI may dim results with a low score. Nothing is cut by score; every
   match is returned (design doc, "Where the cut between match and noise is drawn").
+- `relevance` says how close a match really is; `score` only says where it ranks, so the top result
+  always has `score` 1.0, even when nothing matches well. The reranker reads the query with the
+  snippet's `text` and scores the first 20 results of the requested order (after the filters), in every
+  order; only `order=relevance` sorts them by it. Results after those 20 (page 2 onwards), and every
+  result while reranking is off or when the reranker could not be reached, have `relevance: null`; the
+  search itself still succeeds.
 - `snippet.kind` says what matched best. `"content"`: a passage of a text file; `text` is that passage and
   `start_char`/`end_char` locate it in the file, so the detail view can highlight it. `"metadata"`: the
   AI description matched; `text` is the asset's description. `"image"`: the pixels matched; there is no
@@ -358,6 +365,7 @@ more". A page past the end gives `200` with `results: []` and `has_more: false`,
     {
       "asset": { "id": "…", "filename": "notes-lisbon.txt", "asset_type": "text", "status": "ready", "…": "…" },
       "score": 1.0,
+      "relevance": 0.91,
       "snippet": { "kind": "content", "text": "…her black hair tied back against the wind…", "start_char": 1204, "end_char": 1731,
                    "sentence_start": null, "sentence_end": null },
       "match": "exact"
@@ -365,6 +373,7 @@ more". A page past the end gives `200` with `results: []` and `has_more: false`,
     {
       "asset": { "id": "…", "filename": "portrait-02.jpg", "asset_type": "image", "status": "ready", "…": "…" },
       "score": 0.83,
+      "relevance": 0.64,
       "snippet": { "kind": "image", "text": "A woman with dark hair smiling in a park.", "start_char": null, "end_char": null,
                    "sentence_start": 0, "sentence_end": 41 },
       "match": "semantic"
@@ -411,7 +420,7 @@ screen depends on it.
 | Failed asset: error text + Retry | `asset.error`; `POST /api/assets/{id}/retry` |
 | Search results | `GET /api/search?collection=&q=` |
 | "Show more" | `GET /api/search?…&page=N+1` while `has_more` |
-| Dimmed tail | `score` |
+| Closeness bar on each result | `relevance`; grey, "Relevance not rated", when `null` |
 | "Found in: … / identical to: …" | `asset.filename` and `asset.aliases` |
 | Thumbnails | `<img src="/api/assets/{id}/file">` |
 | Asset detail view | the `Asset` already in hand, or `GET /api/assets/{id}`; the file via `/api/assets/{id}/file`; `snippet` offsets for highlighting |
@@ -428,3 +437,4 @@ screen depends on it.
 | D50 | Each result says how it matched (`match`); the user picks the order and filters by match, asset type and part | 6.8 |
 | D51 | A snippet matched by meaning points at its closest sentence (`snippet.sentence_start`/`sentence_end`, in `text`) | 6.8 |
 | D52 | The text read from an image is its own part: `snippet.kind` and `found_in` value `"visible_text"` | 6.8 |
+| D56 | The reranker's `relevance` on the first 20 results; `order=relevance`, the default, sorts them by it | 6.8 |

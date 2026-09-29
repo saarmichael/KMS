@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     hnsw_ef_search: int = 100
     page_size: int = 20
     max_assets_per_query: int = 100
+    # How many of the top results the reranker scores; one page, so only page 1 costs a call.
+    rerank_candidates: int = Field(default=20, ge=1)
+    # How many (query, text) relevances are remembered, so a change of order or filter does not
+    # pay for the same scores again.
+    rerank_cache_size: int = Field(default=2000, ge=1)
     query_cache_size: int = 4096
 
     # --- storage and seed ----------------------------------------------------

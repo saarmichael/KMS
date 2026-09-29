@@ -11,11 +11,12 @@ from PIL import Image
 from sqlalchemy import insert, update
 
 from kms.ai import set_embedder
-from kms.ai.interfaces import Embedder
+from kms.ai.interfaces import Embedder, Reranker
 from kms.config import get_settings
 from kms.ingest.worker import run_once
 from kms.models import EMBEDDING_DIMS, assets, search_units
-from kms.search.service import embed_query
+from kms.search import service
+from kms.search.service import embed_query, relevance_cache
 
 STUB_MODEL = "stub-embedder"
 
@@ -53,6 +54,25 @@ def stub_embedder():
     yield embedder
     set_embedder(None)
     embed_query.cache_clear()
+
+
+class StubReranker(Reranker):
+    """Scores each text with the relevance a test gave it, 0.5 when it gave none."""
+
+    def __init__(self, relevance_by_text: dict[str, float] | None = None):
+        self.relevance_by_text = relevance_by_text or {}
+
+    def rerank(self, query: str, documents: list[str]) -> list[float]:
+        return [self.relevance_by_text.get(text, 0.5) for text in documents]
+
+
+@pytest.fixture
+def use_reranker(monkeypatch):
+    # Puts in the reranker a test builds. The cache outlives a test, so it is emptied on the way
+    # in and on the way out.
+    relevance_cache.clear()
+    yield lambda reranker: monkeypatch.setattr(service, "get_reranker", lambda: reranker)
+    relevance_cache.clear()
 
 
 def insert_asset(db, collection, filename="file.txt", asset_type="text"):
@@ -355,7 +375,7 @@ def test_result_carries_its_match_kind(client, db, stub_embedder):
 def test_each_order(client, db, stub_embedder):
     exact, partial, semantic = insert_three_kinds(db)
 
-    exact_first = result_ids(search(client, "london museum"))
+    exact_first = result_ids(search(client, "london museum", order="exact_first"))
     tiered = result_ids(search(client, "london museum", order="tiered"))
     blended = result_ids(search(client, "london museum", order="blended"))
 
@@ -475,3 +495,48 @@ def test_exact_hit_has_no_sentence(client, db, stub_embedder):
     assert result["match"] == "exact"
     assert result["snippet"]["sentence_start"] is None
     assert result["snippet"]["sentence_end"] is None
+
+
+# --- relevance ---------------------------------------------------------------
+
+
+def test_default_order_is_relevance(client, db, stub_embedder, use_reranker):
+    exact, partial, semantic = insert_three_kinds(db)
+    # The image's snippet is its description.
+    relevance_by_text = {"london bridge": 0.9, "a museum in london": 0.4, "A text file.": 0.1}
+    use_reranker(StubReranker(relevance_by_text))
+
+    body = search(client, "london museum")
+
+    assert result_ids(body) == [partial, exact, semantic]
+    assert [result["relevance"] for result in body["results"]] == [0.9, 0.4, 0.1]
+
+
+def test_page_two_has_no_relevance(client, db, stub_embedder, use_reranker):
+    use_reranker(StubReranker())
+    page_size = get_settings().page_size
+    for _ in range(page_size + 5):
+        asset_id = insert_asset(db, "demo")
+        insert_unit(db, asset_id, "demo", body="harbour", embedding=axis_vector(0))
+
+    first_page = search(client, "harbour", page=1)
+    second_page = search(client, "harbour", page=2)
+
+    assert all(result["relevance"] == 0.5 for result in first_page["results"])
+    assert all(result["relevance"] is None for result in second_page["results"])
+
+
+def test_results_past_the_candidates_have_no_relevance(
+    client, db, stub_embedder, use_reranker, monkeypatch
+):
+    monkeypatch.setenv("RERANK_CANDIDATES", "2")
+    get_settings.cache_clear()
+    use_reranker(StubReranker())
+    for _ in range(4):
+        asset_id = insert_asset(db, "demo")
+        insert_unit(db, asset_id, "demo", body="harbour", embedding=axis_vector(0))
+
+    body = search(client, "harbour")
+    get_settings.cache_clear()
+
+    assert [result["relevance"] for result in body["results"]] == [0.5, 0.5, None, None]

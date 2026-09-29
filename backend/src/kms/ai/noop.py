@@ -1,19 +1,20 @@
-"""The reranker used while reranking is off: search results keep the order fusion gave them."""
+"""The reranker used while reranking is off: search results get no relevance and keep the order
+fusion gave them."""
 
 from kms.ai.interfaces import Reranker
 
 
 class NoOpReranker(Reranker):
-    """Returns every order unchanged."""
+    """Gives no relevance."""
 
-    def rerank(self, query: str, documents: list[str]) -> list[int]:
-        """Keep the order given.
+    def rerank(self, query: str, documents: list[str]) -> None:
+        """Give no relevance.
 
         Args:
             query: Not read.
-            documents: The results' texts, in the current order.
+            documents: Not read.
 
         Returns:
-            0, 1, 2, … one index per document. Never raises.
+            None. Never raises.
         """
-        return list(range(len(documents)))
+        return None

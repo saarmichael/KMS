@@ -103,18 +103,20 @@ class Embedder(ABC):
 
 
 class Reranker(ABC):
-    """Reorders a short list of search results by reading the query and each result together."""
+    """Judges how well each of a short list of search results answers the query, by reading the
+    query and each result together."""
 
     @abstractmethod
-    def rerank(self, query: str, documents: list[str]) -> list[int]:
-        """Order documents by how well each one answers the query.
+    def rerank(self, query: str, documents: list[str]) -> list[float] | None:
+        """Score each document by how well it answers the query.
 
         Args:
             query: The query as typed.
-            documents: One text per result, in the current order.
+            documents: One text per result.
 
         Returns:
-            The new order, as indices into `documents`, best first.
+            One relevance from 0 to 1 per document, in the order of `documents`; None when this
+            reranker gives no relevance.
 
         Raises:
             Exception: A vendor error, raised as it comes.

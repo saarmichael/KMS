@@ -1,8 +1,11 @@
-"""One search: both paths at once, fused into assets, one page of them with a snippet each."""
+"""One search: both paths at once, fused into assets, the top ones scored by the reranker, one
+page of them with a snippet each."""
 
 import logging
 import re
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -57,12 +60,15 @@ class FoundAsset:
         score: 1.0 for the best asset of the whole query, less for the rest.
         snippet: Why it matched.
         match: How it matched: exact, partial or semantic.
+        relevance: How well it answers the query, from 0 to 1, as the reranker judged it; None
+            when it was not scored.
     """
 
     asset: RowMapping
     score: float
     snippet: MatchSnippet
     match: MatchKind
+    relevance: float | None
 
 
 @dataclass(frozen=True)
@@ -106,6 +112,57 @@ def embed_query(model: str, query: str) -> tuple[float, ...]:
     """
     vectors = get_embedder().embed([query], "query")
     return tuple(vectors[0])
+
+
+# Each (rerank model, query, text) scored so far, the most recently used last. A text's relevance
+# depends only on the query, not on the other results, so it holds whatever the order or filter.
+relevance_cache: OrderedDict[tuple[str, str, str], float] = OrderedDict()
+# Searches run on several threads at once, and the cache must not change while one of them reads it.
+relevance_cache_lock = threading.Lock()
+
+
+def rerank_with_cache(query: str, documents: list[str]) -> list[float] | None:
+    """Score each document against the query, asking the reranker only about texts not scored
+    before.
+
+    Args:
+        query: The normalised query.
+        documents: One text per result.
+
+    Returns:
+        One relevance per document, in the order of `documents`; None when the reranker gives no
+        relevance. At most RERANK_CACHE_SIZE scores are kept; the least recently used goes first.
+
+    Raises:
+        Exception: A vendor error, raised as it comes; nothing from the failed call is kept.
+    """
+    settings = get_settings()
+    model = settings.rerank_model
+
+    unseen = []
+    with relevance_cache_lock:
+        for text in documents:
+            if (model, query, text) not in relevance_cache and text not in unseen:
+                unseen.append(text)
+
+    # The call is made outside the lock, so other searches are not held up by it.
+    if unseen:
+        relevances = get_reranker().rerank(query, unseen)
+        if relevances is None:
+            return None
+        with relevance_cache_lock:
+            for text, relevance in zip(unseen, relevances, strict=True):
+                relevance_cache[(model, query, text)] = relevance
+
+    with relevance_cache_lock:
+        found_relevances = []
+        for text in documents:
+            key = (model, query, text)
+            found_relevances.append(relevance_cache[key])
+            relevance_cache.move_to_end(key)
+        while len(relevance_cache) > settings.rerank_cache_size:
+            relevance_cache.popitem(last=False)
+    return found_relevances
 
 
 def build_snippet(row: RowMapping) -> MatchSnippet:
@@ -167,10 +224,10 @@ def run_both_paths(
 
 
 def fetch_found_assets(page_matches: list[AssetMatch]) -> list[FoundAsset]:
-    """Load the rows of one page of matches in one query and give each its snippet.
+    """Load the rows of some matches in one query and give each its snippet.
 
     Args:
-        page_matches: The page's matches, best first.
+        page_matches: The matches to load (a page, or the top results and the page), best first.
 
     Returns:
         One FoundAsset per match whose asset still exists, in the order of `page_matches`.
@@ -206,7 +263,13 @@ def fetch_found_assets(page_matches: list[AssetMatch]) -> list[FoundAsset]:
         if row is None:
             continue
         found.append(
-            FoundAsset(asset=row, score=match.score, snippet=build_snippet(row), match=match.match)
+            FoundAsset(
+                asset=row,
+                score=match.score,
+                snippet=build_snippet(row),
+                match=match.match,
+                relevance=None,
+            )
         )
     return found
 
@@ -274,6 +337,38 @@ def mark_closest_sentences(
     return marked
 
 
+def score_relevance(query: str, found: list[FoundAsset], order: SearchOrder) -> list[FoundAsset]:
+    """Give each result the reranker's relevance, judged on its snippet's text.
+
+    Args:
+        query: The normalised query.
+        found: The results to score, in the chosen order.
+        order: The order the user chose; only RELEVANCE is sorted here.
+
+    Returns:
+        The same results with `relevance` set: by relevance, highest first, for RELEVANCE (equal
+        ones keep their order); in their order for any other. `found` unchanged when the
+        reranker gives no relevance, and on a vendor error: relevance only adds to results the
+        user already has, so it never fails the search.
+    """
+    texts = [found_asset.snippet.text for found_asset in found]
+    try:
+        relevances = rerank_with_cache(query, texts)
+    except Exception as error:
+        logger.warning("rerank_failed error=%s", type(error).__name__)
+        return found
+    if relevances is None:
+        return found
+
+    scored = []
+    for found_asset, relevance in zip(found, relevances, strict=True):
+        scored.append(replace(found_asset, relevance=relevance))
+    if order == SearchOrder.RELEVANCE:
+        # sorted() is stable, so results of equal relevance keep their score order.
+        scored = sorted(scored, key=lambda found_asset: -found_asset.relevance)
+    return scored
+
+
 def search(
     collection: str,
     query: str,
@@ -295,8 +390,8 @@ def search(
         unit_kinds: Keep only matches in these parts of an asset; None keeps all.
 
     Returns:
-        The page's assets with their scores and snippets. Empty, with `has_more` false, when
-        nothing matches or the page is past the end.
+        The page's assets with their scores, relevances and snippets. Empty, with `has_more`
+        false, when nothing matches or the page is past the end.
 
     Raises:
         Exception: A database or vendor error, raised as it comes.
@@ -330,13 +425,19 @@ def search(
     page_matches = matches[page_start:page_end]
     has_more = len(matches) > page_end
 
-    # Load rows and snippets.
-    found = fetch_found_assets(page_matches)
-
-    # Rerank within the page.
-    descriptions = [found_asset.asset["description"] for found_asset in found]
-    new_order = get_reranker().rerank(query, descriptions)
-    results = [found[index] for index in new_order]
+    # Load rows and snippets. A page that starts among the top results needs all of them, scored
+    # together, because in the relevance order any of them may land on it.
+    candidate_count = settings.rerank_candidates
+    reranked = 0
+    if page_start < candidate_count:
+        fetched = fetch_found_assets(matches[: max(candidate_count, page_end)])
+        candidates = score_relevance(query, fetched[:candidate_count], order)
+        for candidate in candidates:
+            if candidate.relevance is not None:
+                reranked += 1
+        results = (candidates + fetched[candidate_count:])[page_start:page_end]
+    else:
+        results = fetch_found_assets(page_matches)
 
     # Point the passages matched by meaning at their closest sentence. The query vector is
     # already cached, so this asks the embedder only for the sentences.
@@ -347,11 +448,13 @@ def search(
             sentence_count += 1
 
     logger.info(
-        "search_done collection=%s units_keyword=%s units_vector=%s assets=%s sentences=%s ms=%s",
+        "search_done collection=%s units_keyword=%s units_vector=%s assets=%s reranked=%s "
+        "sentences=%s ms=%s",
         collection,
         len(keyword_hits),
         len(vector_hits),
         len(matches),
+        reranked,
         sentence_count,
         round((time.perf_counter() - started) * 1000, 1),
     )

@@ -9,10 +9,12 @@ from kms.search.fuse import AssetMatch, FusedUnit
 class SearchOrder(StrEnum):
     """How the results are ordered.
 
-    EXACT_FIRST: exact matches first, the rest by score. TIERED: exact, then partial, then
+    RELEVANCE: the top results by the reranker's relevance, whatever their match, the rest by
+    score. EXACT_FIRST: exact matches first, the rest by score. TIERED: exact, then partial, then
     semantic matches, each by score. BLENDED: by score alone.
     """
 
+    RELEVANCE = "relevance"
     EXACT_FIRST = "exact_first"
     TIERED = "tiered"
     BLENDED = "blended"
@@ -63,7 +65,8 @@ def filter_matches(
 def order_matches(matches: list[AssetMatch], order: SearchOrder) -> list[AssetMatch]:
     """Put the assets in the chosen order. Never raises.
 
-    Python's sort is stable, so assets that share a tier keep their score order.
+    Python's sort is stable, so assets that share a tier keep their score order. RELEVANCE keeps
+    score order here; the search sorts its top results by relevance once they are scored.
 
     Args:
         matches: Assets, best score first.

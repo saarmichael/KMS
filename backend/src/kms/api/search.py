@@ -22,7 +22,7 @@ def search_collection(
     collection: Annotated[str, Query(pattern=COLLECTION_NAME_PATTERN)],
     q: str,
     page: Annotated[int, Query(ge=1)] = 1,
-    order: SearchOrder = SearchOrder.EXACT_FIRST,
+    order: SearchOrder = SearchOrder.RELEVANCE,
     match: Annotated[list[MatchKind] | None, Query()] = None,
     asset_type: Annotated[list[Literal["image", "text"]] | None, Query()] = None,
     found_in: Annotated[
@@ -44,8 +44,8 @@ def search_collection(
         found_in: Keep only results that matched in these parts of an asset.
 
     Returns:
-        The page's results with their scores and snippets. Empty for an unknown collection,
-        for no match and for a page past the end.
+        The page's results with their scores, relevances and snippets. Empty for an unknown
+        collection, for no match and for a page past the end.
 
     Raises:
         HTTPException: 422 if the query is empty or only spaces.
@@ -70,6 +70,7 @@ def search_collection(
             SearchResult(
                 asset=Asset.from_row(found.asset),
                 score=found.score,
+                relevance=found.relevance,
                 snippet=snippet,
                 match=found.match,
             )
