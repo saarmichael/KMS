@@ -11,6 +11,7 @@ type SearchOptionsProps = {
 }
 
 const ORDERS: { value: SearchOrder; label: string }[] = [
+  { value: 'relevance', label: 'Most relevant' },
   { value: 'exact_first', label: 'Exact first' },
   { value: 'tiered', label: 'Exact, partial, semantic' },
   { value: 'blended', label: 'Best overall' },

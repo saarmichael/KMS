@@ -58,11 +58,14 @@ export type MatchKind = 'exact' | 'partial' | 'semantic'
 export type SearchResult = {
   asset: Asset
   score: number
+  // How well the result answers the query, 0 to 1, as the reranker judged it; null when it was not scored
+  // (past the first 20 results, or with reranking off).
+  relevance: number | null
   snippet: Snippet
   match: MatchKind
 }
 
-export type SearchOrder = 'exact_first' | 'tiered' | 'blended'
+export type SearchOrder = 'relevance' | 'exact_first' | 'tiered' | 'blended'
 
 // What the user chose to see: the order and three filters, each a list of the values to keep.
 export type SearchView = {

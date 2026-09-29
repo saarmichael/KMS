@@ -55,7 +55,7 @@ export async function search(collection: string | null, query: string | null, pa
   const pageMatches = capped.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const topCount = capped.length > 0 ? capped[0].matchCount : 1
   const results: SearchResult[] = []
-  for (const { stored, matchCount } of pageMatches) {
+  for (const [placeOnPage, { stored, matchCount }] of pageMatches.entries()) {
     let snippet
     if (stored.asset_type === 'text') {
       snippet = contentSnippet(await stored.body.text(), words)
@@ -80,7 +80,11 @@ export async function search(collection: string | null, query: string | null, pa
     }
     // The mock matches words only, so a result is exact when it holds every word; it ignores the filters.
     const match = matchCount === words.length ? ('exact' as const) : ('partial' as const)
-    results.push({ asset: toAsset(stored), score: matchCount / topCount, snippet, match })
+    // Like the real reranker, only the first 20 results of the query get a relevance; the mock's is the
+    // share of the query words the result holds.
+    const place = (page - 1) * PAGE_SIZE + placeOnPage
+    const relevance = place < RERANKED_RESULTS ? matchCount / words.length : null
+    results.push({ asset: toAsset(stored), score: matchCount / topCount, relevance, snippet, match })
   }
 
   const hasMore = capped.length > page * PAGE_SIZE
@@ -206,6 +210,7 @@ const READY_MS = 5_000
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 const PAGE_SIZE = 20
 const MAX_RESULTS = 100
+const RERANKED_RESULTS = 20
 const NAME_RULE = /^[a-z0-9_-]{1,64}$/
 const UUID_RULE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const FAIL_MESSAGE = 'Mock failure: the vision model returned invalid output three times.'

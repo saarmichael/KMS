@@ -1,5 +1,5 @@
-// One search result: thumbnail, title, which file it was found in, and the passage or description that
-// matched. The coloured bar on the left edge shows how close the match is; nothing is faded.
+// One search result: thumbnail, title, which file it was found in, how relevant it is, and the passage or
+// description that matched. Nothing is faded.
 //
 // How data reaches it:
 //   SearchResults `results` state -> <SearchResultCard result query>
@@ -11,12 +11,11 @@
 //                        sentence instead (snippet.sentence_start / sentence_end) -> <ClosestSentenceText>
 //     asset.metadata.visible_text -> for an image whose text contains a query word: "Text in the image",
 //                        unless the snippet already is that text
-//     result.score    -> closeness() -> colour of the edge bar and its tooltip
 //     result.match    -> the badge: exact, partial or semantic, in its colour
+//     result.relevance -> the number beside the badge, when the reranker scored the result
 //   a click on the card -> onOpen(asset, snippet, query) -> the detail dialog, with the matches marked
 import { assetFileUrl } from '../api/client'
 import type { Asset, SearchResult, Snippet } from '../api/types'
-import { closeness } from '../closeness'
 import { MATCH_COLOURS, MATCH_LABELS } from '../searchView'
 import { countMatches, excerptAround } from '../queryWords'
 import ClosestSentenceText from './ClosestSentenceText'
@@ -43,8 +42,7 @@ const SNIPPET_LABELS: Record<Snippet['kind'], string> = {
 }
 
 export default function SearchResultCard({ result, query, onOpen }: SearchResultCardProps) {
-  const { asset, score, snippet } = result
-  const match = closeness(score)
+  const { asset, relevance, snippet } = result
   const title = asset.metadata ? asset.metadata.title : asset.filename
 
   // The API gives no position for a match in an image's text, so the query words are looked up here. When
@@ -95,12 +93,9 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
 
   return (
     <li
-      title={match.label}
       onClick={() => onOpen(asset, snippet, query)}
-      className="relative flex cursor-pointer gap-4 overflow-hidden rounded-xl bg-surface p-3 pl-5 shadow-xs ring-1 ring-border transition-shadow hover:shadow-md hover:ring-border-strong"
+      className="relative flex cursor-pointer gap-4 overflow-hidden rounded-xl bg-surface p-3 shadow-xs ring-1 ring-border transition-shadow hover:shadow-md hover:ring-border-strong"
     >
-      <span className={`absolute inset-y-0 left-0 w-1 ${match.barClass}`} aria-hidden="true" />
-
       {asset.asset_type === 'image' ? (
         <img src={assetFileUrl(asset.id)} alt="" className="size-28 shrink-0 rounded-lg bg-surface-hover object-cover" />
       ) : (
@@ -132,6 +127,14 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
             {MATCH_LABELS[result.match]}
           </span>
           <p className="text-xs font-medium tracking-wide text-accent-text uppercase">{SNIPPET_LABELS[snippet.kind]}</p>
+          {relevance !== null && (
+            <span
+              title="How well this result answers your query, as judged by the reranker"
+              className="ml-auto text-xs text-text-muted tabular-nums"
+            >
+              Relevance {relevance.toFixed(2)}
+            </span>
+          )}
         </div>
         {/* Text read from an image is set in monospace, as it is in the dialog's visible-text box. */}
         <p

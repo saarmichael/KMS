@@ -3,9 +3,9 @@
 // since both are word matches; semantic, a match by meaning, has a colour of its own.
 import type { MatchKind, SearchView } from './api/types'
 
-// Everything on: every result, exact matches first. `image` has no chip, so it stays in `foundIn` for good.
+// Everything on: every result, the most relevant first. `image` has no chip, so it stays in `foundIn` for good.
 export const DEFAULT_VIEW: SearchView = {
-  order: 'exact_first',
+  order: 'relevance',
   match: ['exact', 'partial', 'semantic'],
   assetType: ['image', 'text'],
   foundIn: ['content', 'metadata', 'image', 'visible_text', 'filename'],
