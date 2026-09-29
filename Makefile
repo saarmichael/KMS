@@ -1,5 +1,5 @@
 # Task runner for the whole repo. `make <target>`; see PLAN.md "How we work".
-.PHONY: db db-stop migrate dev api ui test test-live lint build deploy seed matrix logs
+.PHONY: db db-stop migrate dev stop api ui test test-live lint build deploy seed matrix logs
 
 BACKEND = cd backend && uv run
 FRONTEND = cd frontend && npm
@@ -21,10 +21,16 @@ ui:            ## Vite dev server on :5173 (proxies /api to :8000)
 	$(FRONTEND) run dev
 
 dev: migrate   ## API + UI together, fake adapters unless .env says otherwise
-	@trap 'kill 0' INT TERM; \
+	@# Ctrl+\ (QUIT) stops both servers too, for terminals where Ctrl+C does not reach the shell.
+	@trap 'kill 0' INT TERM QUIT; \
 	($(BACKEND) uvicorn kms.main:app --reload --port 8000) & \
 	($(FRONTEND) run dev) & \
 	wait
+
+stop:          ## stop the API and the UI started by make dev, whatever still holds their ports
+	@for port in 8000 5173; do \
+		for pid in $$(lsof -ti :$$port -sTCP:LISTEN); do kill $$pid; done; \
+	done
 
 test: db       ## unit + integration tests (fake adapters, kms_test database)
 	$(BACKEND) pytest -q --ignore=tests/live

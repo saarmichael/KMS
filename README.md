@@ -204,6 +204,26 @@ security, backups.
   fusion, and later trains the reranker.
 - **Near-duplicate grouping.** Burst shots and re-saved scans have different
   hashes. A perceptual hash folds them into one result.
+- **A candidate pool that one large file cannot fill.** *Known limitation:*
+  each search path keeps its best 100 *units* before they are grouped into
+  assets, and a long text file has hundreds of chunks. For "black hair" the
+  novel in the demo takes 92 keyword and 83 vector places, so a relevant photo
+  or note can miss the results altogether; the effect grows with the
+  collection. *The improvement,* in two levels:
+  1. *A quota by unit kind.* Metadata, image and file-name units exist once per
+     asset; only chunks multiply. Each path fills a separate quota for each
+     group, so chunks can never push another asset's description out. Cheap:
+     the same query run per group, on the same index.
+  2. *A cap per asset* on what joins the pool (e.g. its top 3 units per path).
+     Easy in the keyword path (a window function). In the vector path the index
+     does not know about assets, so the cap needs a larger fetch first, and one
+     dominant file can still fill that fetch; with step 1 in place this is only
+     a safety net.
+
+  The reranker, if it scores units rather than one snippet per asset, then
+  reads at most units per asset × assets reranked (e.g. 3 × 20 = 60) texts:
+  still one call. Fusion ranks change, so the query matrix is run before and
+  after.
 
 ### Domain profiles
 
