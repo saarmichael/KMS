@@ -7,10 +7,11 @@
 //     -> <SearchResultCard result query> for each result
 //   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
 //   the filters (in CollectionView) change the `view` prop -> a new loadPage -> the effect loads page 1
-//     again; the cards shown stay, with a spinner, until the new ones arrive
+//     again; the cards shown stay, with a spinner, until the new ones arrive. A "Show more" still running
+//     for the old view is aborted, so its page never lands below the new results
 //   Cancel (in the search box) removes this component; the effect cleanup aborts the running request
 //   <SearchResultCard onOpen> -> onOpen(asset, snippet, query), passed up to CollectionView's detail dialog
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, search } from '../api/client'
 import type { Asset, SearchResult, SearchView, Snippet } from '../api/types'
 import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
@@ -44,16 +45,23 @@ export default function SearchResults({
   // changed and page 1 is on its way; the cards shown until then are the old ones.
   const [shownView, setShownView] = useState(view)
   const [error, setError] = useState<string | null>(null)
+  // Cancels every request made for the current view. A ref, not state: it changes with each view but is
+  // never drawn, so changing it must not render again.
+  const viewRequests = useRef<AbortController | null>(null)
 
   // ---- Talks to the API -------------------------------------------------------------------
 
   // Loads one page of results; later pages go below the ones already shown. A failure keeps what is shown.
   // `loading` starts as true; the buttons that load again set it back to true themselves.
-  // A cancelled request changes nothing: the component is on its way out.
+  // A cancelled request changes nothing: the component is on its way out, or the view has changed.
   const loadPage = useCallback(
     (pageNumber: number, signal?: AbortSignal): Promise<void> => {
       return search(collection, query, pageNumber, view, signal)
         .then((response) => {
+          // The answer may arrive just as the request is cancelled.
+          if (signal?.aborted) {
+            return
+          }
           // Page 1 replaces the list, so loading it twice never shows a result twice.
           if (pageNumber === 1) {
             setResults(response.results)
@@ -86,9 +94,10 @@ export default function SearchResults({
   )
 
   // Loads the first page when the search starts, and again when the view changes. Leaving (Cancel, Back,
-  // a new search) or a newer view runs the cleanup, which aborts the request if it is still running.
+  // a new search) or a newer view runs the cleanup, which aborts every request of the view still running.
   useEffect(() => {
     const controller = new AbortController()
+    viewRequests.current = controller
     loadPage(1, controller.signal)
     return () => controller.abort()
   }, [loadPage])
@@ -96,13 +105,13 @@ export default function SearchResults({
   function handleShowMore() {
     setLoading(true)
     setError(null)
-    loadPage(page + 1)
+    loadPage(page + 1, viewRequests.current?.signal)
   }
 
   function handleTryAgain() {
     setLoading(true)
     setError(null)
-    loadPage(1)
+    loadPage(1, viewRequests.current?.signal)
   }
 
   // ---- Display ------------------------------------------------------------------------------

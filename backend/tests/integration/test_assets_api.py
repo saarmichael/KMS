@@ -58,6 +58,18 @@ def test_upload_over_limit_is_413(client):
     assert response.json() == {"detail": "File is larger than the 10 MB limit."}
 
 
+def test_upload_over_the_limit_is_refused_before_it_is_read(client, monkeypatch):
+    def upload_must_not_run(*args):
+        raise AssertionError("the upload handler read the body")
+
+    monkeypatch.setattr("kms.api.assets.upload", upload_must_not_run)
+
+    response = post_file(client, "big.txt", b"a" * (10 * 1024 * 1024 + 128 * 1024))
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "File is larger than the 10 MB limit."}
+
+
 def test_upload_unsupported_type_is_415(client):
     response = post_file(client, "blob.bin", bytes(range(256)))
     assert response.status_code == 415

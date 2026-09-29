@@ -85,6 +85,10 @@ class ResultPage:
     has_more: bool
 
 
+class QueryEmbeddingFailed(Exception):
+    """The embedding service did not answer for the query, so the search cannot run."""
+
+
 def normalise_query(query: str) -> str:
     """Trim the query and collapse each run of whitespace to one space; case is kept, so the
     text embedded is exactly what was typed. Never raises."""
@@ -109,10 +113,14 @@ def embed_query(model: str, query: str) -> tuple[float, ...]:
         and a list could be changed by one of them.
 
     Raises:
-        Exception: A vendor error, raised as it comes; a failed call is not remembered.
+        QueryEmbeddingFailed: The embedder raised, whatever the reason; its error is chained as
+            the cause. A failed call is not remembered.
     """
     # A search cannot run without its query's vector, so the call gets one quick retry.
-    vectors = get_embedder().embed([query], "query", INTERACTIVE_POLICY)
+    try:
+        vectors = get_embedder().embed([query], "query", INTERACTIVE_POLICY)
+    except Exception as error:
+        raise QueryEmbeddingFailed(str(error)) from error
     return tuple(vectors[0])
 
 
@@ -212,7 +220,8 @@ def run_both_paths(
         The keyword hits, then the vector hits, each best first.
 
     Raises:
-        Exception: A database or vendor error from either path, raised as it comes.
+        QueryEmbeddingFailed: The query could not be embedded.
+        Exception: A database error from either path, raised as it comes.
     """
     # Keyword runs while the query is embedded. A pool per call, so searches don't queue.
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -398,7 +407,8 @@ def search(
         false, when nothing matches or the page is past the end.
 
     Raises:
-        Exception: A database or vendor error, raised as it comes.
+        QueryEmbeddingFailed: The query could not be embedded.
+        Exception: A database error, raised as it comes.
     """
     started = time.perf_counter()
     settings = get_settings()

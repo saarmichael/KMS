@@ -58,7 +58,8 @@ Every error response has the same body:
 | `409` | The action does not fit the asset's current state (only: retry of an asset that is not `failed`) |
 | `413` | Upload larger than 10 MB |
 | `415` | Upload is neither a supported image nor text |
-| `422` | A parameter is missing or invalid (bad collection name, empty query, page below 1, id not a UUID) |
+| `422` | A parameter is missing or invalid (bad collection name, empty or over-long query, page below 1, id not a UUID) |
+| `503` | A search could not embed its query: the embedding service did not answer. Worth trying again |
 | `500` | A bug on our side. Body is FastAPI's default and may not be JSON; the UI shows a generic message |
 
 Why the `422` note matters: FastAPI's own validation errors come back with `detail` as a *list* of
@@ -287,7 +288,7 @@ Deletes database rows only; the files stay on disk (D13).
 | Param | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `collection` | string | yes | Name rule. Search never crosses collections |
-| `q` | string | yes | The query as typed. Empty or only spaces → `422` |
+| `q` | string | yes | The query as typed. Empty, only spaces or over 500 characters → `422` |
 | `page` | integer | no, default `1` | `1` or more. Pages hold 20 results (D32) |
 | `order` | string | no, default `relevance` | `relevance`: the top 20 by `relevance`, whatever their `match`, the rest by score (D56). `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
 | `match` | string, repeatable | no, default all | Keep only results whose `match` is one of these: `exact`, `partial`, `semantic`. Repeated for several: `match=exact&match=partial` |
@@ -299,7 +300,8 @@ Deletes database rows only; the files stay on disk (D13).
 | Status | Body | When |
 | --- | --- | --- |
 | `200` | `SearchResponse` | An unknown collection or no match gives `results: []` |
-| `422` | error | `collection` or `q` missing or invalid, `page` below 1, a value of `order`, `match`, `asset_type` or `found_in` outside the list |
+| `422` | error | `collection` or `q` missing or invalid, `q` over 500 characters, `page` below 1, a value of `order`, `match`, `asset_type` or `found_in` outside the list |
+| `503` | error | The embedding service did not answer for the query |
 
 ```ts
 type SearchResponse = {
@@ -389,8 +391,7 @@ more". A page past the end gives `200` with `results: []` and `has_more: false`,
 
 ### 6.9 `GET /api/health` — deployment check
 
-**When the UI calls it:** not in the product. The Phase 0 hello page shows it; Phase 8 adds status
-counts. Documented as it is today (Phase 0):
+**When the UI calls it:** not in the product; it is for checking a deployment.
 
 ```ts
 type Health = {
@@ -422,7 +423,7 @@ If the call fails, the UI treats `demo_mode` as `false`; the server still refuse
 
 ## 7. Which call feeds which screen
 
-| Screen or action (Phase 7) | Calls |
+| Screen or action | Calls |
 | --- | --- |
 | App load | `GET /api/collections`; select `demo` if present; `GET /api/config` |
 | Collection selector with counts | `GET /api/collections` |
@@ -434,7 +435,7 @@ If the call fails, the UI treats `demo_mode` as `false`; the server still refuse
 | Failed asset: error text + Retry | `asset.error`; `POST /api/assets/{id}/retry` |
 | Search results | `GET /api/search?collection=&q=` |
 | "Show more" | `GET /api/search?…&page=N+1` while `has_more` |
-| Closeness bar on each result | `relevance`; grey, "Relevance not rated", when `null` |
+| Relevance on each result | `relevance`, shown as a number; hidden when `null` |
 | "Found in: … / identical to: …" | `asset.filename` and `asset.aliases` |
 | Thumbnails | `<img src="/api/assets/{id}/file">` |
 | Asset detail view | the `Asset` already in hand, or `GET /api/assets/{id}`; the file via `/api/assets/{id}/file`; `snippet` offsets for highlighting |

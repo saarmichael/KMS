@@ -12,15 +12,18 @@ from kms.api.schemas import (
 from kms.config import get_settings
 from kms.search import MatchKind
 from kms.search.order import SearchOrder
-from kms.search.service import search
+from kms.search.service import QueryEmbeddingFailed, search
 
 router = APIRouter()
+
+# Long enough for any question a person types; a longer query only makes a larger SQL statement.
+MAX_QUERY_CHARS = 500
 
 
 @router.get("/api/search")
 def search_collection(
     collection: Annotated[str, Query(pattern=COLLECTION_NAME_PATTERN)],
-    q: str,
+    q: Annotated[str, Query(max_length=MAX_QUERY_CHARS)],
     page: Annotated[int, Query(ge=1)] = 1,
     order: SearchOrder = SearchOrder.RELEVANCE,
     match: Annotated[list[MatchKind] | None, Query()] = None,
@@ -48,13 +51,22 @@ def search_collection(
         collection, for no match and for a page past the end.
 
     Raises:
-        HTTPException: 422 if the query is empty or only spaces.
+        HTTPException: 422 if the query is empty, only spaces or too long; 503 if the embedding
+            service did not answer for the query.
     """
     # A query of only spaces passes FastAPI's own checks, so it is caught here.
     if not q.strip():
         raise HTTPException(status_code=422, detail="q: must not be blank.")
 
-    result_page = search(collection, q, page, order, match, asset_type, found_in)
+    try:
+        result_page = search(collection, q, page, order, match, asset_type, found_in)
+    except QueryEmbeddingFailed:
+        # An outage on the vendor's side, not a bug on ours, and it may pass in a moment.
+        raise HTTPException(
+            status_code=503,
+            detail="Search is unavailable: the embedding service did not answer. "
+            "Try again in a moment.",
+        ) from None
 
     results = []
     for found in result_page.results:

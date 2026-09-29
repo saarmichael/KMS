@@ -8,6 +8,8 @@ database replays the same answers without spending quota.
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
@@ -37,6 +39,28 @@ def recording_path(cache_dir: Path, kind: str, request: dict) -> Path:
     request_text = json.dumps(request, sort_keys=True)
     request_hash = hashlib.sha256(request_text.encode()).hexdigest()
     return cache_dir / kind / f"{request_hash}.json"
+
+
+def write_recording(path: Path, recording: dict) -> None:
+    """Write one recording as JSON, so that a reader only ever sees the whole file.
+
+    A crash or a second thread mid-write would otherwise leave half a file, which every later
+    read of the same request would fail on. The JSON goes to a temporary file in the same
+    folder first, then a rename puts it in place in one step.
+
+    Args:
+        path: The recording's file, from `recording_path`; its folder is created if missing.
+        recording: The answer to keep. It must be JSON-serialisable.
+
+    Raises:
+        OSError: The folder or the file could not be written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", dir=path.parent, suffix=".tmp", delete=False
+    ) as temporary_file:
+        json.dump(recording, temporary_file)
+    os.replace(temporary_file.name, path)
 
 
 class RecordedVision(Vision):
@@ -110,8 +134,7 @@ class RecordedVision(Vision):
 
         description = self.inner.describe(content, asset_type, filename, photo_details, policy)
         recording = {"model": description.model, "metadata": description.metadata.model_dump()}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(recording, indent=2))
+        write_recording(path, recording)
         return description
 
 
@@ -179,6 +202,5 @@ class RecordedEmbedder(Embedder):
             return recording["vectors"]
 
         vectors = self.inner.embed(inputs, input_type, policy)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"vectors": vectors}))
+        write_recording(path, {"vectors": vectors})
         return vectors

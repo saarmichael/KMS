@@ -27,7 +27,10 @@ make dev                               # Postgres, migrations, API on :8000, UI 
 By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
 and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
 `VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
-`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`.
+`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`,
+`RERANK_ENABLED` (relevance from the reranker), `AI_CACHE_DIR` (record and
+replay the vendors' answers), `APP_PASSWORD` (one password in front of the
+app), `DEMO_MODE` (visitors cannot delete collections).
 
 | Command | What it does |
 |---|---|
@@ -99,22 +102,26 @@ flowchart TD
 - **Search** runs two paths concurrently — keyword (Postgres full-text) and
   meaning (vector similarity) — and merges them with reciprocal rank fusion.
   Images are searchable through both their AI-written description and a
-  vector computed directly from the pixels, so "black hair" and "brunette"
-  both find the same photo, and "document" finds photos that contain one.
+  vector computed directly from the pixels, and every file by meaning as well
+  as by its words: "ice cream" finds the gelato photo and a note that only
+  says "gelato", and "document" finds photos that contain one.
 - The demo ships with a seeded set of files built to answer the assignment's
   example queries.
 
 ## How search works
 
-Every asset becomes one or more **search units**: a metadata unit (title,
-description, tags, visible text), one content unit per text chunk, and — for
-images — an image unit embedded straight from the pixels. All vectors come from
+Every asset becomes several **search units**: a metadata unit (title,
+description, tags), a file-name unit, one content unit per text chunk, and —
+for images — a unit for the text read from the image and an image unit
+embedded straight from the pixels. All vectors come from
 one multimodal embedding model, so text, descriptions, images and the query
 share a single vector space and one HNSW index. Search pulls the top 100 units
 from each path, fuses the rankings in Python, groups by asset (best unit wins),
 and returns pages of 20 with a "show more". No score threshold is applied:
 recall is preferred over precision, so a weak match costs a glance and a real
-match is never dropped.
+match is never dropped. With `RERANK_ENABLED`, a cross-encoder (Voyage
+rerank-2.5) scores the first page against the query and each result shows that
+relevance; off by default, the no-op keeps the fused order.
 
 ## Stack
 
@@ -172,10 +179,6 @@ interface, a flag, a stub, a column) where each one plugs in.
   where every query maps onto a known set of questions, thesaurus
   dictionaries, multi-query/HyDE rewrites or ingest-time doc2query would be
   worth their cost.
-- **Reranking.** A cross-encoder reranker (Voyage rerank-2.5) improves
-  ordering but not recall and costs ~100–300 ms. The stage is pluggable with
-  a no-op default; the implementation is behind a flag and is the last thing
-  built, if time allows.
 
 ### Out of scope by the assignment
 

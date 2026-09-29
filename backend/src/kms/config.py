@@ -49,8 +49,9 @@ class Settings(BaseSettings):
     rerank_enabled: bool = False
     rerank_model: str = "rerank-2.5"
     # Where the real vendors' answers are recorded and replayed from; empty turns recording
-    # off. A string rather than a Path, so that empty can mean off.
-    ai_cache_dir: str = "./recordings"
+    # off. A string rather than a Path, so that empty can mean off. Off unless set, because
+    # every new search query adds a file, so a deployment would record without end.
+    ai_cache_dir: str = ""
 
     # --- ingest --------------------------------------------------------------
     worker_enabled: bool = True

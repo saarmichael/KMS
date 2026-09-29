@@ -1,9 +1,11 @@
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.engine import Connection, RowMapping
 
@@ -17,6 +19,45 @@ from kms.models import assets
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Room for the multipart boundaries, headers and the collection field around the file's bytes.
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+
+async def reject_oversized_upload(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Refuse an upload whose declared size is over the limit, before its body is read.
+
+    FastAPI reads the whole multipart body before the upload handler runs, so the handler's own
+    size check only comes after a large file has been received in full.
+
+    Args:
+        request: The incoming request.
+        call_next: The rest of the app, called when the request may pass.
+
+    Returns:
+        A 413 with the handler's `{"detail": ...}` when a `POST /api/assets` declares a
+        `Content-Length` over the limit plus the form's overhead; otherwise the app's response.
+        A request without a readable `Content-Length` passes, and the handler checks its size.
+    """
+    if request.method != "POST" or request.url.path != "/api/assets":
+        return await call_next(request)
+    try:
+        declared_bytes = int(request.headers.get("content-length", ""))
+    except ValueError:
+        return await call_next(request)
+
+    max_bytes = get_settings().max_upload_bytes
+    if declared_bytes <= max_bytes + MULTIPART_OVERHEAD_BYTES:
+        return await call_next(request)
+    # The filename is inside the body, which is never read.
+    reason = f"declares {declared_bytes} bytes"
+    logger.info("upload_rejected filename=%r status=413 reason=%r", None, reason)
+    return JSONResponse(
+        status_code=413,
+        content={"detail": f"File is larger than the {max_bytes // (1024 * 1024)} MB limit."},
+    )
 
 
 def load_asset_or_404(connection: Connection, asset_id: UUID) -> RowMapping:

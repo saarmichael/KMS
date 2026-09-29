@@ -66,6 +66,8 @@ def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title="KMS", version="0.1.0", lifespan=lifespan)
     app.add_exception_handler(RequestValidationError, flatten_validation_error)
+    # The middleware added last runs first, so the password is checked before the upload size.
+    app.middleware("http")(assets.reject_oversized_upload)
     app.middleware("http")(require_password)
     app.include_router(health.router)
     app.include_router(assets.router)
@@ -91,8 +93,11 @@ def create_app() -> FastAPI:
             # password prompt never shows and every API call then fails. "no-cache" still lets it
             # keep the file, but it must check with the server, and so pass the password, first.
             headers = {"Cache-Control": "no-cache"}
-            file = static / path
-            if path and file.is_file():
+            # The path comes from the URL, where "%2e%2e" arrives as "..", so a path that resolves
+            # outside the build is treated as unknown rather than served.
+            file = (static / path).resolve()
+            inside_build = file.is_relative_to(static.resolve())
+            if path and inside_build and file.is_file():
                 return FileResponse(file, headers=headers)
             return FileResponse(index, headers=headers)
 

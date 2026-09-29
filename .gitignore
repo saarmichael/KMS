@@ -9,7 +9,7 @@ __pycache__/
 # Node
 node_modules/
 frontend/dist/
-backend/kms/static/
+backend/src/kms/static/
 
 # Secrets and local state
 .env

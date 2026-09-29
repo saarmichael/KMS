@@ -5,7 +5,7 @@ import type { AppConfig, Asset, Collection, SearchResponse, SearchView, UploadRe
 
 // `signal` lets the caller cancel the request: aborting it stops the fetch and rejects with an AbortError.
 // Each filter value is its own parameter (match=exact&match=partial), the form the server reads as a list.
-export async function search(
+export function search(
   collection: string,
   query: string,
   page: number,
@@ -22,15 +22,7 @@ export async function search(
   for (const part of view.foundIn) {
     params.append('found_in', part)
   }
-  try {
-    return await request<SearchResponse>(`/api/search?${params}`, { signal })
-  } catch (caught) {
-    // The search endpoint never answers 404 itself, so a 404 means this server has no search yet.
-    if (caught instanceof ApiError && caught.status === 404) {
-      throw new ApiError(404, 'Search is not available on this server yet.')
-    }
-    throw caught
-  }
+  return request<SearchResponse>(`/api/search?${params}`, { signal })
 }
 
 // fetch cannot report how much of a request body has been sent, so the upload uses XMLHttpRequest, whose

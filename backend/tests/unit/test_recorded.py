@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from kms.ai import get_embedder, get_vision, recorded, set_embedder, set_vision
@@ -111,6 +113,15 @@ def test_embed_changed_input_type_is_not_replayed(tmp_path):
     embedder.embed(["red car"], "query", BACKGROUND_POLICY)
 
     assert inner.calls == 2
+
+
+def test_recording_is_written_whole(tmp_path):
+    path = tmp_path / "embed" / "request.json"
+
+    recorded.write_recording(path, {"vectors": [[0.1, 0.2]]})
+
+    assert json.loads(path.read_text()) == {"vectors": [[0.1, 0.2]]}
+    assert [file.name for file in path.parent.iterdir()] == ["request.json"]
 
 
 def test_failed_call_is_not_recorded(tmp_path):

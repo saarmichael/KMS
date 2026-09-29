@@ -75,6 +75,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D56 | Relevance from the reranker | A Voyage reranker (`rerank-2.5`, behind `RERANK_ENABLED`) scores the first `RERANK_CANDIDATES` (20) results of the requested order, after the filters, reading each one's snippet text; the API returns it as `relevance` (0 to 1) next to `score`, which keeps its meaning. A new order, `relevance`, the API's and the UI's default, sorts those candidates by relevance whatever their match kind (this replaces D50's rule that a reranker keeps each result in its tier); the results after them follow in score order. The other orders keep their order and still get relevance on their candidates, so relevance is there whatever the order. Results past the candidates, and every result while reranking is off, have `relevance: null`. No cut-offs turn relevance into "good" or "bad" (amended Sep 29, Michael): the score is given as it is, and how the UI shows it is decided later. Each (model, query, text) pair's relevance is remembered (`RERANK_CACHE_SIZE` pairs, least recently used dropped), so a change of order or filter sends only texts not scored before. A failed rerank leaves `relevance` `null` and score order; the search succeeds. The `Reranker` interface returns relevances, and `NoOpReranker` returns none. Phase 9, item 1. Michael's addition (relevance over tiers by default, the 20 candidates) | decided (Sep 29) |
 | D57 | Retry policy chosen by the caller | Every vendor call (`describe`, `embed`, `rerank`) takes a required `RetryPolicy` (attempts, first wait, the longest server-requested wait honoured, timeout per request), chosen at the call site: `BACKGROUND_POLICY` for the worker and the CLI, `INTERACTIVE_POLICY` for the search query's embedding, `OPTIONAL_POLICY` (one attempt) for the closest sentences and the rerank, whose failure only drops a hint. Each adapter reads its own vendor's errors (`classify_gemini_error`, `classify_voyage_error`); `errors.py` keeps only the vendor-neutral loop and imports no SDK; Gemini's model fallback reads `is_overloaded` in `gemini.py`. The timeout travels with the policy: per request for Gemini, one client per timeout for Voyage (`VoyageClients`). One adapter instance per context (worker, search) was weighed and rejected: it cannot tell the search query from the optional search calls. Phase 9, item 9. Michael's addition | decided (Sep 29) |
 | D58 | Demo mode | `DEMO_MODE` (default off) is a runtime setting: `GET /api/config` returns `{demo_mode}`, the UI reads it once on load, shows a "Demo" label by the logo, and greys out Delete, with a hint bubble on hover, "Deleting collections is not allowed in demo mode", and `DELETE /api/collections/{name}` answers `403` while it is on, so the shared collection is safe from curl too. A failed config call leaves the button enabled; the server still refuses. A build-time `VITE_DEMO_MODE` was weighed (a rebuild per mode, a Dockerfile `ARG`). There is no per-asset delete, so nothing else is switched off. Phase 9, item 10 | decided (Sep 29) |
+| D59 | Review fixes before hand-over | An external-review pass found: the SPA route served any file on disk (`%2e%2e` in the URL), so it now serves only files that resolve inside the build; `make test` read `DEMO_MODE` from `.env`; the built SPA was tracked because `.gitignore` named the wrong path; an oversized upload was received in full before its `413`; a vendor outage in search was a bare `500`; recordings grew with every query and could be left half-written; "Show more" could append a page of an old filter; `q` had no length limit; docs lagged the code. Fixes: resolve-and-check in `spa()`; `DEMO_MODE` pinned in the test conftest; the `.gitignore` path; a `Content-Length` middleware (`413` before the body is read); `503` via `QueryEmbeddingFailed`; `AI_CACHE_DIR` off by default and atomic `write_recording`; the view's `AbortController` cancels its later pages; `q` capped at 500 characters (`422`); README, system design, contract and the entrypoint comment brought in line, F13 retired. Left as is (Michael): seeding not built, local recordings and blobs in the Docker image, the Phase log. Phase 9, item 11 | decided (Sep 29) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -1080,7 +1081,7 @@ top of each file.
 | F10 | Open in a new tab and Download | Plain links to the file endpoint (`target="_blank"`, `download`). They do not work under the mocks (MSW never handles page navigations; the proxy answers 502) and work against the real API | decided (Sep 27) |
 | F11 | Polling the file list | One repeating 2 s timer (`setInterval`) while any file is pending or processing, so a failed load does not stop it and the list recovers when the server answers again. Two slow loads may overlap; the next tick corrects any older answer | decided (Sep 27) |
 | F12 | File count summary above the list | Uses the badge words: "3 files · 1 pending · 1 processing", a part left out when its count is 0 | decided (Sep 27) |
-| F13 | Search before the backend has it | A 404 from the search endpoint is shown as "Search is not available on this server yet."; the error screen offers Try again and Back to all files | decided (Sep 27) |
+| F13 | Search before the backend has it | A 404 from the search endpoint is shown as "Search is not available on this server yet."; the error screen offers Try again and Back to all files. Retired Sep 29 by D59: the endpoint exists, so a 404 shows the server's own detail | replaced (Sep 29) |
 
 ---
 
@@ -1534,6 +1535,45 @@ embedding or a 20-text rerank in well under a second, so the timeouts only cut c
   (403, the detail, the collection still there), `test_delete_allowed_outside_demo_mode`. Browser check with
   `DEMO_MODE=true`.
 - Per-asset delete does not exist and stays out (Michael, Sep 29).
+
+11. **Review fixes before hand-over (D59)**: an external-review pass (code review, tests, a browser run) before the
+    code is sent out. On branch `review-fixes`, five parts, approved together Sep 29.
+
+| Part | What | Status |
+| --- | --- | --- |
+| 1 | The SPA route serves only files inside the build | done |
+| 2 | `make test` independent of `DEMO_MODE` in `.env` | done |
+| 3 | The built SPA untracked: `.gitignore` path fixed; Michael runs `git rm -r --cached backend/src/kms/static` | done |
+| 4 | Docs in line with the code, smallest edits | done |
+| 5 | Robustness: early `413`, `503` on a failed query embed, recordings, "Show more", `q` length | done |
+
+- *Part 1, `main.py`:* `spa(path)` resolves `static / path` and serves it only when it is a file inside
+  `static.resolve()`; anything else gets `index.html`, as an unknown path does. `StaticFiles(html=True)` was weighed:
+  it drops the `no-cache` header the password prompt needs and answers unknown paths with 404. Tests
+  (`tests/unit/test_spa.py`): `test_spa_serves_a_file_of_the_build`, `test_spa_never_serves_a_file_outside_the_build`.
+- *Part 2, `tests/conftest.py`:* `DEMO_MODE=false` pinned beside `WORKER_ENABLED`, `AI_PROVIDER` and `APP_PASSWORD`.
+- *Part 3, `.gitignore`:* `backend/kms/static/` becomes `backend/src/kms/static/`. The Dockerfile builds the SPA
+  itself; a fresh clone has no UI on :8000 until `npm run build`.
+- *Part 4:* README (settings line; the search units as built; the reranker as built, out of "left out for scope";
+  "ice cream" finds the gelato photo and the note that only says "gelato", in place of the "black hair" photo the
+  demo does not have); system design (reranker built, scores the snippet text); contract (`503`, `q` limit, the
+  relevance row, no phase wording); `docker/entrypoint.sh` comment; `client.ts` no longer remaps a search `404`.
+- *Part 5a, `api/assets.py`:* `reject_oversized_upload(request, call_next) -> Response`, registered in `create_app()`
+  inside the password check: a `POST /api/assets` whose `Content-Length` is over `max_upload_bytes` plus
+  `MULTIPART_OVERHEAD_BYTES` (64 KiB) gets the handler's `413` before the body is read; no or an unreadable header
+  passes to the handler's own check. Test: `test_upload_over_the_limit_is_refused_before_it_is_read`.
+- *Part 5b, `search/service.py`:* `QueryEmbeddingFailed(Exception)`, raised by `embed_query` from any embedder
+  error (chained); `api/search.py` answers it with `503`, "Search is unavailable: the embedding service did not
+  answer. Try again in a moment." A keyword-only fallback was weighed (friendlier, a larger change to the flow).
+  Test: `test_search_answers_503_when_the_query_cannot_be_embedded`.
+- *Part 5c, `config.py` and `ai/recorded.py`:* `ai_cache_dir` defaults to `""` (off); `.env.example` keeps
+  `./recordings` for local work. `write_recording(path: Path, recording: dict) -> None` writes to a temporary file in
+  the same folder and renames it into place; raises `OSError`. Test: `test_recording_is_written_whole`.
+- *Part 5d, `SearchResults.tsx`:* the page-1 effect keeps its `AbortController` in a ref (`viewRequests`); "Show
+  more" and "Try again" pass its signal, so a view change aborts them; an answer that lands as the request is
+  aborted is dropped. Browser check.
+- *Part 5e, `api/search.py`:* `q: Annotated[str, Query(max_length=MAX_QUERY_CHARS)]`, `MAX_QUERY_CHARS = 500`, a
+  constant, not a setting. Test: a 501-character query added to `test_rejects_invalid_parameters`.
 
 Each is its own gate; each can be skipped without touching anything else.
 

@@ -21,6 +21,9 @@ os.environ["WORKER_ENABLED"] = "false"
 os.environ["AI_PROVIDER"] = "fake"
 # Tests call the API without a password; the auth tests set one themselves.
 os.environ["APP_PASSWORD"] = ""
+# Tests delete collections freely, even when .env turns demo mode on; the demo-mode tests set it
+# themselves.
+os.environ["DEMO_MODE"] = "false"
 
 
 @pytest.fixture(scope="session")

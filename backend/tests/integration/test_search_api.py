@@ -169,11 +169,24 @@ def test_rejects_invalid_parameters(client):
         {"collection": "demo", "q": "harbour", "match": "close"},
         {"collection": "demo", "q": "harbour", "asset_type": "video"},
         {"collection": "demo", "q": "harbour", "found_in": "title"},
+        {"collection": "demo", "q": "a" * 501},
     ]
     for params in invalid_params:
         response = client.get("/api/search", params=params)
         assert response.status_code == 422, params
         assert isinstance(response.json()["detail"], str), params
+
+
+def test_search_answers_503_when_the_query_cannot_be_embedded(client, stub_embedder, monkeypatch):
+    def embedder_is_down(inputs, input_type, policy):
+        raise ConnectionError("Voyage did not answer")
+
+    monkeypatch.setattr(stub_embedder, "embed", embedder_is_down)
+
+    response = client.get("/api/search", params={"collection": "demo", "q": "harbour"})
+
+    assert response.status_code == 503
+    assert "embedding service did not answer" in response.json()["detail"]
 
 
 def test_unknown_collection_gives_no_results(client, stub_embedder):
