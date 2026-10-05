@@ -1,5 +1,5 @@
 # Task runner for the whole repo. `make <target>`; see PLAN.md "How we work".
-.PHONY: db db-stop migrate dev stop api ui test test-live lint build deploy seed matrix logs
+.PHONY: db db-stop migrate dev stop api ui test test-live test-parity lint build deploy seed matrix logs
 
 BACKEND = cd backend && uv run
 FRONTEND = cd frontend && npm
@@ -37,6 +37,9 @@ test: db       ## unit + integration tests (fake adapters, kms_test database)
 
 test-live: db  ## adds the live vendor tests; needs GEMINI_API_KEY and VOYAGE_API_KEY
 	$(BACKEND) pytest -q -m live tests/live
+
+test-parity:   ## Jev vs the API vs the UI, against a running `make dev`; needs JEV_API_KEY and Google Chrome
+	$(BACKEND) pytest -q -m live tests/live/test_jev_parity.py
 
 lint:
 	$(BACKEND) ruff check .

@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy.engine import RowMapping
 
+from kms.ai.interfaces import RerankerName
 from kms.search import MatchKind
 
 # Lowercase letters, digits, "-" and "_", 1 to 64 characters: safe in a URL path as it is.
@@ -128,15 +129,19 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """One page of search results, best first."""
+    """One page of search results, best first, and the reranker that gave their relevances."""
 
     results: list[SearchResult]
     page: int
     page_size: int
     has_more: bool
+    reranker: RerankerName
 
 
 class AppConfig(BaseModel):
-    """How this deployment is set up, as far as the UI needs to know."""
+    """How this deployment is set up, as far as the UI needs to know: whether it is a demo, which
+    rerankers give a relevance, and which one a search uses when it names none."""
 
     demo_mode: bool
+    rerankers: list[RerankerName]
+    default_reranker: RerankerName

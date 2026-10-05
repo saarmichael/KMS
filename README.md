@@ -28,7 +28,9 @@ By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
 and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
 `VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
 `WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`,
-`RERANK_ENABLED` (relevance from the reranker), `AI_CACHE_DIR` (record and
+`RERANK_ENABLED` (relevance from the reranker), `DEFAULT_RERANKER` (`voyage` or
+`jev`, used when a search does not choose), `JEV_API_KEY`, `JEV_MODEL` (default
+`jev-latest`), `JEV_PARALLEL_CALLS` (default 50), `AI_CACHE_DIR` (record and
 replay the vendors' answers), `APP_PASSWORD` (one password in front of the
 app), `DEMO_MODE` (visitors cannot delete collections).
 
@@ -36,6 +38,7 @@ app), `DEMO_MODE` (visitors cannot delete collections).
 |---|---|
 | `make test` | Unit and integration tests, fake adapters, separate `kms_test` database |
 | `make test-live` | Adds the tests against the real vendors (needs both keys) |
+| `make test-parity` | Against a running `make dev`: checks Jev's relevance through the API and the UI against Jev asked directly (needs `JEV_API_KEY`) |
 | `make lint` | ruff for the backend, oxlint for the frontend |
 | `make build` | Builds the SPA into the backend, then the container image |
 | `docker compose --profile full up --build` | Runs the production container locally |
@@ -122,7 +125,9 @@ recall is preferred over precision, so a weak match costs a glance and a real
 match is never dropped. With `RERANK_ENABLED`, a cross-encoder (Voyage
 rerank-2.5) scores the first page against the query and each result shows that
 relevance; it needs `AI_PROVIDER=real`. Off by default, or with the fake
-adapters, the no-op keeps the fused order.
+adapters, the no-op keeps the fused order. A second reranker, TypeSafe's Jev,
+can be chosen per search (the Reranker row in the filters, or `reranker=jev`);
+it scores every result, one call each, and gives a calibrated probability.
 
 ## Stack
 
@@ -298,14 +303,29 @@ the same; each client gets a profile, not a fork.
 
 ## Exploration notes
 
-- **Calibrated-decision models as the reranker.** TypeSafe's Jev
-  (released Sept 2026) gives up text generation and returns typed decisions
-  with *calibrated* probabilities in ~100 ms. Two things make it interesting
-  here. First, the rerank stage takes (query, unit) pairs and returns an
-  ordering — exactly a "score / judge" call, and Jev answers a whole page of
-  units in one parallel query. Second, a calibrated relevance probability is
-  the one thing this design lacks: cosine and RRF scores aren't calibrated,
-  which is why I refused to draw a match/noise threshold. A number that
-  actually means "70% relevant" would make that threshold honest.
-  Text-only for now; early access; one vendor's benchmarks. Slot: the
-  `Reranker` interface, behind the existing flag.
+- **Calibrated-decision models as the reranker.** Built. TypeSafe's Jev
+  (released Sept 2026) is a second reranker beside Voyage, chosen per search.
+  It scores every result, not only the first page, and returns a calibrated
+  probability, the one thing cosine and RRF scores lack. The UI can show both
+  rankings side by side. Text-only for now; early access; one vendor's
+  benchmarks.
+
+## How Jev is used here
+
+Jev does not generate text: it is given a structured state and typed
+questions about it, and a yes/no question comes back as the probability of yes.
+The search asks one question per result: *"Does this search result answer the
+search query?"* The state is the query and that result: its title, file name
+and tags, plus the matched part (a passage, a description, the text read from
+an image, the file name) under a plain name and its text. The probability is
+the result's `relevance`, from 0 to 1.
+
+In the pipeline, Jev comes after retrieval. The keyword and vector paths are
+fused, filters and the result cap are applied, and then every result is
+scored, not only the first page as with Voyage. Each result is sent in a call
+of its own, up to `JEV_PARALLEL_CALLS` at once, so a hundred results take about
+as long as one. A result judged alone keeps the same relevance in any list, so
+relevances are cached between searches and changing the order makes no new
+calls. `order=relevance` then sorts the whole list by that probability. If any
+call still fails after its retries, the search keeps the fused score order and
+shows no relevance.

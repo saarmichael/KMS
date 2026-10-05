@@ -20,7 +20,9 @@ export const handlers = [
   http.get('/api/search', async ({ request }) => {
     await delay(SEARCH_LATENCY_MS)
     const params = new URL(request.url).searchParams
-    return toHttpResponse(await store.search(params.get('collection'), params.get('q'), params.get('page')))
+    return toHttpResponse(
+      await store.search(params.get('collection'), params.get('q'), params.get('page'), params.get('reranker')),
+    )
   }),
 
   http.post('/api/assets', async ({ request }) => {
@@ -72,10 +74,11 @@ export const handlers = [
     return toHttpResponse(store.deleteCollection(String(params.name)))
   }),
 
-  // The mock is never a demo, so deleting stays possible while working on the UI.
+  // The mock is never a demo, so deleting stays possible while working on the UI. Both rerankers are on,
+  // so the reranker choice and the side-by-side view can be worked on too.
   http.get('/api/config', async () => {
     await delay(LATENCY_MS)
-    return HttpResponse.json({ demo_mode: false })
+    return HttpResponse.json({ demo_mode: false, rerankers: ['voyage', 'jev'], default_reranker: 'voyage' })
   }),
 
 ]

@@ -22,7 +22,12 @@ export type MockResponse = { status: number; body: object | null }
 // Every asset the fake backend holds. Starts from the seed; a page reload starts over.
 let assets: StoredAsset[] = seedAssets()
 
-export async function search(collection: string | null, query: string | null, pageParam: string | null): Promise<MockResponse> {
+export async function search(
+  collection: string | null,
+  query: string | null,
+  pageParam: string | null,
+  rerankerParam: string | null,
+): Promise<MockResponse> {
   if (collection === null || !NAME_RULE.test(collection)) {
     return error(422, 'collection must be 1-64 characters of a-z, 0-9, - or _.')
   }
@@ -32,6 +37,10 @@ export async function search(collection: string | null, query: string | null, pa
   const page = pageParam === null ? 1 : Number(pageParam)
   if (!Number.isInteger(page) || page < 1) {
     return error(422, 'page must be 1 or more.')
+  }
+  const reranker = rerankerParam ?? 'voyage'
+  if (reranker !== 'voyage' && reranker !== 'jev') {
+    return error(422, "reranker: Input should be 'voyage' or 'jev'")
   }
 
   const words = query.toLowerCase().split(/\s+/).filter((word) => word !== '')
@@ -80,15 +89,22 @@ export async function search(collection: string | null, query: string | null, pa
     }
     // The mock matches words only, so a result is exact when it holds every word; it ignores the filters.
     const match = matchCount === words.length ? ('exact' as const) : ('partial' as const)
-    // Like the real reranker, only the first 20 results of the query get a relevance; the mock's is the
-    // share of the query words the result holds.
+    // Like the real rerankers, Voyage gives only the first 20 results of the query a relevance and Jev gives
+    // every result one. The mock's is the share of the query words the result holds; Jev's is squared, so
+    // the two columns of the side-by-side view differ, as the real ones do.
     const place = (page - 1) * PAGE_SIZE + placeOnPage
-    const relevance = place < RERANKED_RESULTS ? matchCount / words.length : null
+    const share = matchCount / words.length
+    let relevance: number | null = null
+    if (reranker === 'jev') {
+      relevance = share * share
+    } else if (place < RERANKED_RESULTS) {
+      relevance = share
+    }
     results.push({ asset: toAsset(stored), score: matchCount / topCount, relevance, snippet, match })
   }
 
   const hasMore = capped.length > page * PAGE_SIZE
-  return { status: 200, body: { results, page, page_size: PAGE_SIZE, has_more: hasMore } }
+  return { status: 200, body: { results, page, page_size: PAGE_SIZE, has_more: hasMore, reranker } }
 }
 
 export async function uploadAsset(collection: FormDataEntryValue | null, file: FormDataEntryValue | null): Promise<MockResponse> {

@@ -3,9 +3,15 @@ from types import SimpleNamespace
 import pytest
 
 from kms.ai.errors import OPTIONAL_POLICY
+from kms.ai.interfaces import RerankDocument
 from kms.ai.voyage import VoyageReranker
 
 MODEL = "rerank-test-model"
+
+
+def documents(*texts: str) -> list[RerankDocument]:
+    """One document per text, the rest of its fields filled in, which Voyage never reads."""
+    return [RerankDocument(text, "metadata", "A title", "notes.txt", ("tag",)) for text in texts]
 
 
 class StubClients:
@@ -39,7 +45,7 @@ def test_relevance_comes_back_in_input_order():
     client = StubClient([0.2, 0.9, 0.5])
 
     relevances = VoyageReranker(StubClients(client), MODEL).rerank(
-        "lisbon", ["a", "b", "c"], OPTIONAL_POLICY
+        "lisbon", documents("a", "b", "c"), OPTIONAL_POLICY
     )
 
     assert relevances == [0.2, 0.9, 0.5]
@@ -63,4 +69,6 @@ def test_wrong_count_raises():
     client = StubClient([0.2])
 
     with pytest.raises(ValueError, match="1 scores for 2 documents"):
-        VoyageReranker(StubClients(client), MODEL).rerank("lisbon", ["a", "b"], OPTIONAL_POLICY)
+        VoyageReranker(StubClients(client), MODEL).rerank(
+            "lisbon", documents("a", "b"), OPTIONAL_POLICY
+        )

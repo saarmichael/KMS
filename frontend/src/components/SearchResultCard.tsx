@@ -13,6 +13,7 @@
 //                        unless the snippet already is that text
 //     result.match    -> the badge: exact, partial or semantic, in its colour
 //     result.relevance -> the number beside the badge, when the reranker scored the result
+//   rank             -> the result's place in its list, before the title, when two lists are compared
 //   a click on the card -> onOpen(asset, snippet, query) -> the detail dialog, with the matches marked
 import { assetFileUrl } from '../api/client'
 import type { Asset, SearchResult, Snippet } from '../api/types'
@@ -26,6 +27,7 @@ import { DocumentIcon } from './icons'
 type SearchResultCardProps = {
   result: SearchResult
   query: string
+  rank?: number
   onOpen: (asset: Asset, snippet: Snippet, query: string) => void
 }
 
@@ -41,7 +43,7 @@ const SNIPPET_LABELS: Record<Snippet['kind'], string> = {
   filename: 'In the file name',
 }
 
-export default function SearchResultCard({ result, query, onOpen }: SearchResultCardProps) {
+export default function SearchResultCard({ result, query, rank, onOpen }: SearchResultCardProps) {
   const { asset, relevance, snippet } = result
   const title = asset.metadata ? asset.metadata.title : asset.filename
 
@@ -107,6 +109,7 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
       <div className="min-w-0 flex-1 py-1">
         <h3 className="truncate text-sm font-semibold text-text">
           <button type="button" className="max-w-full truncate text-left hover:text-accent-text">
+            {rank !== undefined && <span className="mr-1.5 text-text-muted tabular-nums">{rank}.</span>}
             {title}
           </button>
         </h3>
@@ -130,7 +133,7 @@ export default function SearchResultCard({ result, query, onOpen }: SearchResult
           {relevance !== null && (
             <span
               title="How well this result answers your query, as judged by the reranker"
-              className="ml-auto text-xs text-text-muted tabular-nums"
+              className="ml-auto shrink-0 text-xs whitespace-nowrap text-text-muted tabular-nums"
             >
               Relevance {relevance.toFixed(2)}
             </span>

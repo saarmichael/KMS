@@ -1,18 +1,21 @@
 // Every request the app sends to the server goes through this file: one function per API endpoint.
 // Each builds the URL (and body), sends it, and returns the parsed JSON typed as in types.ts.
 // Every failure is thrown as ApiError, so a component only ever catches one type and shows its `detail`.
-import type { AppConfig, Asset, Collection, SearchResponse, SearchView, UploadResponse } from './types'
+import type { AppConfig, Asset, Collection, RerankerName, SearchResponse, SearchView, UploadResponse } from './types'
 
 // `signal` lets the caller cancel the request: aborting it stops the fetch and rejects with an AbortError.
 // Each filter value is its own parameter (match=exact&match=partial), the form the server reads as a list.
+// The reranker is passed on its own, not read from the view: with "both" chosen, each column of results
+// asks for one of them.
 export function search(
   collection: string,
   query: string,
   page: number,
   view: SearchView,
+  reranker: RerankerName,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
-  const params = new URLSearchParams({ collection, q: query, page: String(page), order: view.order })
+  const params = new URLSearchParams({ collection, q: query, page: String(page), order: view.order, reranker })
   for (const kind of view.match) {
     params.append('match', kind)
   }

@@ -34,9 +34,17 @@ export type Collection = {
   asset_count: number
 }
 
-// How the deployment is set up. In demo mode, deleting a collection is switched off.
+// The rerankers that can give a result its relevance. Voyage scores the top 20 results of a search, Jev
+// scores every result.
+export type RerankerName = 'voyage' | 'jev'
+
+// How the deployment is set up. In demo mode, deleting a collection is switched off. `rerankers` lists the
+// rerankers that are on (empty while reranking is off); `default_reranker` is the one a search uses when
+// it names none.
 export type AppConfig = {
   demo_mode: boolean
+  rerankers: RerankerName[]
+  default_reranker: RerankerName
 }
 
 // deduplicated is true when the collection already held these exact bytes.
@@ -64,7 +72,7 @@ export type SearchResult = {
   asset: Asset
   score: number
   // How well the result answers the query, 0 to 1, as the reranker judged it; null when it was not scored
-  // (past the first 20 results, or with reranking off).
+  // (past Voyage's first 20 results, or with reranking off).
   relevance: number | null
   snippet: Snippet
   match: MatchKind
@@ -72,17 +80,24 @@ export type SearchResult = {
 
 export type SearchOrder = 'relevance' | 'exact_first' | 'tiered' | 'blended'
 
-// What the user chose to see: the order and three filters, each a list of the values to keep.
+// Which reranker's relevance the results show; "both" shows the two rankings side by side.
+export type RerankerChoice = RerankerName | 'both'
+
+// What the user chose to see: the reranker, the order and three filters, each a list of the values to keep.
+// `reranker` is null until the user picks one, which means the server's default reranker.
 export type SearchView = {
+  reranker: RerankerChoice | null
   order: SearchOrder
   match: MatchKind[]
   assetType: Asset['asset_type'][]
   foundIn: Snippet['kind'][]
 }
 
+// `reranker` names the reranker that gave the relevances.
 export type SearchResponse = {
   results: SearchResult[]
   page: number
   page_size: number
   has_more: boolean
+  reranker: RerankerName
 }

@@ -1,5 +1,5 @@
 """The process-wide vision and embedding adapters, chosen by AI_PROVIDER on first use
-(same pattern as blob.get_blob_store), and the search reranker."""
+(same pattern as blob.get_blob_store), and the search rerankers, one per vendor."""
 
 import logging
 from pathlib import Path
@@ -8,7 +8,8 @@ from google import genai
 
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.gemini import GeminiVision
-from kms.ai.interfaces import Embedder, Reranker, Vision
+from kms.ai.interfaces import RERANKER_NAMES, Embedder, Reranker, RerankerName, Vision
+from kms.ai.jev import JevReranker, build_jev_client
 from kms.ai.noop import NoOpReranker
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
 from kms.ai.voyage import VoyageClients, VoyageEmbedder, VoyageReranker
@@ -18,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 _vision: Vision | None = None
 _embedder: Embedder | None = None
-_reranker: Reranker | None = None
+# Built on first use, one per reranker name.
+_rerankers: dict[RerankerName, Reranker] = {}
 # One set of Voyage clients for the embedder and the reranker, so a timeout's client is built once.
 _voyage_clients: VoyageClients | None = None
 
@@ -90,31 +92,55 @@ def get_embedder() -> Embedder:
     return _embedder
 
 
-def get_reranker() -> Reranker:
-    """Return the shared reranker that scores the top search results, building it from settings
-    on first use.
+def available_rerankers() -> list[RerankerName]:
+    """Say which rerankers give a relevance in this deployment.
 
     Returns:
-        VoyageReranker over RERANK_MODEL when RERANK_ENABLED is true and AI_PROVIDER is "real";
-        otherwise NoOpReranker, which gives no relevance.
+        The names, in the order of RERANKER_NAMES, of the rerankers that are on: RERANK_ENABLED
+        is true, AI_PROVIDER is "real", and the vendor's key is set (VOYAGE_API_KEY for "voyage",
+        JEV_API_KEY for "jev"). Empty while reranking is off. Never raises.
+    """
+    settings = get_settings()
+    if not settings.rerank_enabled or settings.ai_provider != "real":
+        return []
+    keys: dict[RerankerName, str | None] = {
+        "voyage": settings.voyage_api_key,
+        "jev": settings.jev_api_key,
+    }
+    return [name for name in RERANKER_NAMES if keys[name]]
+
+
+def get_reranker(name: RerankerName) -> Reranker:
+    """Return the shared reranker of one vendor, building it from settings on first use.
+
+    Args:
+        name: "voyage" or "jev".
+
+    Returns:
+        VoyageReranker over RERANK_MODEL, or JevReranker over JEV_MODEL, when that reranker is
+        among `available_rerankers()`; otherwise NoOpReranker, which gives no relevance.
 
     Raises:
-        ValueError: The Voyage reranker is chosen and VOYAGE_API_KEY is not set.
+        typesafe_sdk.TypeSafeError: JEV_API_KEY is set but malformed.
     """
-    global _reranker, _voyage_clients
-    if _reranker is None:
+    global _voyage_clients
+    reranker = _rerankers.get(name)
+    if reranker is None:
         settings = get_settings()
-        if settings.rerank_enabled and settings.ai_provider == "real":
-            if not settings.voyage_api_key:
-                raise ValueError("VOYAGE_API_KEY is not set")
+        if name not in available_rerankers():
+            reranker = NoOpReranker()
+            logger.info("ai_adapters_selected reranker=%s model=none", name)
+        elif name == "voyage":
             if _voyage_clients is None:
                 _voyage_clients = VoyageClients(settings.voyage_api_key)
-            _reranker = VoyageReranker(_voyage_clients, settings.rerank_model)
-            logger.info("ai_adapters_selected provider=real reranker=%s", settings.rerank_model)
+            reranker = VoyageReranker(_voyage_clients, settings.rerank_model)
+            logger.info("ai_adapters_selected reranker=voyage model=%s", settings.rerank_model)
         else:
-            _reranker = NoOpReranker()
-            logger.info("ai_adapters_selected reranker=none")
-    return _reranker
+            client = build_jev_client(settings.jev_api_key)
+            reranker = JevReranker(client, settings.jev_model, settings.jev_parallel_calls)
+            logger.info("ai_adapters_selected reranker=jev model=%s", settings.jev_model)
+        _rerankers[name] = reranker
+    return reranker
 
 
 def set_vision(vision: Vision | None) -> None:
@@ -135,3 +161,16 @@ def set_embedder(embedder: Embedder | None) -> None:
     """
     global _embedder
     _embedder = embedder
+
+
+def set_reranker(name: RerankerName, reranker: Reranker | None) -> None:
+    """Replace the shared reranker of one vendor; tests use it.
+
+    Args:
+        name: "voyage" or "jev".
+        reranker: The reranker to use, or None so the next call builds one from settings.
+    """
+    if reranker is None:
+        _rerankers.pop(name, None)
+    else:
+        _rerankers[name] = reranker

@@ -16,3 +16,7 @@ def configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # The TypeSafe SDK and its HTTP library log every request at INFO, and the Jev reranker sends
+    # one request per search result; `jev_reranked` sums them up in one line instead.
+    for noisy_logger in ("typesafe_sdk", "httpx2"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)

@@ -204,14 +204,40 @@ def demo_mode(monkeypatch):
 
 
 def test_config_reports_demo_mode(client, monkeypatch):
-    assert client.get("/api/config").json() == {"demo_mode": False}
+    assert client.get("/api/config").json()["demo_mode"] is False
 
     monkeypatch.setenv("DEMO_MODE", "true")
     get_settings.cache_clear()
     try:
-        assert client.get("/api/config").json() == {"demo_mode": True}
+        assert client.get("/api/config").json()["demo_mode"] is True
     finally:
         get_settings.cache_clear()
+
+
+def test_config_offers_no_reranker_with_fake_adapters(client):
+    assert client.get("/api/config").json() == {
+        "demo_mode": False,
+        "rerankers": [],
+        "default_reranker": "voyage",
+    }
+
+
+def test_config_offers_each_reranker_whose_key_is_set(client, monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "real")
+    monkeypatch.setenv("RERANK_ENABLED", "true")
+    monkeypatch.setenv("VOYAGE_API_KEY", "voyage-key")
+    monkeypatch.setenv("JEV_API_KEY", "")
+    get_settings.cache_clear()
+    try:
+        voyage_only = client.get("/api/config").json()["rerankers"]
+        monkeypatch.setenv("JEV_API_KEY", "jev-key")
+        get_settings.cache_clear()
+        both = client.get("/api/config").json()["rerankers"]
+    finally:
+        get_settings.cache_clear()
+
+    assert voyage_only == ["voyage"]
+    assert both == ["voyage", "jev"]
 
 
 def test_delete_refused_in_demo_mode(demo_mode, client):

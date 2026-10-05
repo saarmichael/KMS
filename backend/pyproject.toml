@@ -20,10 +20,12 @@ dependencies = [
     "tenacity",
     "httpx",
     "pysbd>=0.3.4,<0.4",
+    "typesafe-sdk>=0.7.2,<0.8",
 ]
 
 [dependency-groups]
 dev = [
+    "playwright>=1.63.0",
     "pytest",
     "ruff",
 ]

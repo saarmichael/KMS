@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
+from kms.ai.interfaces import RerankerName
 from kms.api.schemas import (
     COLLECTION_NAME_PATTERN,
     Asset,
@@ -12,7 +13,8 @@ from kms.api.schemas import (
 from kms.config import get_settings
 from kms.search import MatchKind
 from kms.search.order import SearchOrder
-from kms.search.service import QueryEmbeddingFailed, search
+from kms.search.pipeline import search
+from kms.search.service import QueryEmbeddingFailed
 
 router = APIRouter()
 
@@ -31,6 +33,7 @@ def search_collection(
     found_in: Annotated[
         list[Literal["metadata", "content", "image", "visible_text", "filename"]] | None, Query()
     ] = None,
+    reranker: RerankerName | None = None,
 ) -> SearchResponse:
     """One page of the assets in a collection that match a query, in the chosen order.
 
@@ -45,6 +48,8 @@ def search_collection(
         match: Keep only results that matched this way.
         asset_type: Keep only results of these asset types.
         found_in: Keep only results that matched in these parts of an asset.
+        reranker: Which reranker gives the relevances: "voyage" scores the top results, "jev"
+            every result. Left out, DEFAULT_RERANKER.
 
     Returns:
         The page's results with their scores, relevances and snippets. Empty for an unknown
@@ -57,9 +62,11 @@ def search_collection(
     # A query of only spaces passes FastAPI's own checks, so it is caught here.
     if not q.strip():
         raise HTTPException(status_code=422, detail="q: must not be blank.")
+    settings = get_settings()
+    reranker_name = reranker or settings.default_reranker
 
     try:
-        result_page = search(collection, q, page, order, match, asset_type, found_in)
+        result_page = search(collection, q, page, order, match, asset_type, found_in, reranker_name)
     except QueryEmbeddingFailed:
         # An outage on the vendor's side, not a bug on ours, and it may pass in a moment.
         raise HTTPException(
@@ -90,6 +97,7 @@ def search_collection(
     return SearchResponse(
         results=results,
         page=page,
-        page_size=get_settings().page_size,
+        page_size=settings.page_size,
         has_more=result_page.has_more,
+        reranker=reranker_name,
     )

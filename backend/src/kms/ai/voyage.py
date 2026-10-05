@@ -20,7 +20,7 @@ from PIL import Image
 from voyageai import error as voyage_errors
 
 from kms.ai.errors import ErrorVerdict, RetryPolicy, call_with_retries
-from kms.ai.interfaces import Embedder, Reranker
+from kms.ai.interfaces import Embedder, RerankDocument, Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -239,13 +239,17 @@ class VoyageReranker(Reranker):
         self.clients = clients
         self.model = model
 
-    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float]:
+    def rerank(
+        self, query: str, documents: list[RerankDocument], policy: RetryPolicy
+    ) -> list[float]:
         """Score each document against the query in one Voyage call.
+
+        Voyage reads plain text, so it is given each document's snippet text alone.
 
         Args:
             query: The query as typed.
-            documents: One text per result. A text too long for the model is cut short by
-                Voyage rather than refused.
+            documents: One per result. A text too long for the model is cut short by Voyage
+                rather than refused.
             policy: How hard to try, and how long the request may take.
 
         Returns:
@@ -263,7 +267,7 @@ class VoyageReranker(Reranker):
         rerank_call = functools.partial(
             client.rerank,
             query=query,
-            documents=documents,
+            documents=[document.text for document in documents],
             model=self.model,
             truncation=True,
         )

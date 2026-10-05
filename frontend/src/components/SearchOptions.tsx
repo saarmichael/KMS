@@ -1,13 +1,28 @@
-// The search filters under the search box, always shown: how to order the results, and which of them to
-// keep. They can be set before a search. Nothing here talks to the API; a change goes up through onChange,
-// the next search uses it, and results already showing load again with the new view.
+// The search filters under the search box, always shown: which reranker scores the results, how to order
+// them, and which of them to keep. They can be set before a search. Nothing here talks to the API; a change
+// goes up through onChange, the next search uses it, and results already showing load again with the new
+// view.
 import type { ReactNode } from 'react'
-import type { Asset, SearchOrder, SearchView, Snippet } from '../api/types'
-import { MATCH_COLOURS, MATCH_KINDS, MATCH_LABELS } from '../searchView'
+import type { Asset, RerankerChoice, RerankerName, SearchOrder, SearchView, Snippet } from '../api/types'
+import { MATCH_COLOURS, MATCH_KINDS, MATCH_LABELS, RERANKER_LABELS, RERANKER_SCOPES } from '../searchView'
 
 type SearchOptionsProps = {
   view: SearchView
+  // The rerankers the server has on; the reranker row shows only when there is at least one.
+  rerankers: RerankerName[]
+  // The reranker in use: the view's, or the server's default while the view names none.
+  rerankerChoice: RerankerChoice
   onChange: (view: SearchView) => void
+}
+
+const RERANKER_CHOICES: RerankerChoice[] = ['voyage', 'jev', 'both']
+
+// A choice the server cannot serve is shown, greyed out, so the user sees it exists: "both" needs both on.
+function rerankerAvailable(choice: RerankerChoice, rerankers: RerankerName[]): boolean {
+  if (choice === 'both') {
+    return rerankers.includes('voyage') && rerankers.includes('jev')
+  }
+  return rerankers.includes(choice)
 }
 
 const ORDERS: { value: SearchOrder; label: string }[] = [
@@ -45,9 +60,28 @@ function toggled<T>(chosen: T[], value: T): T[] {
   return chosen.filter((item) => item !== value)
 }
 
-export default function SearchOptions({ view, onChange }: SearchOptionsProps) {
+export default function SearchOptions({ view, rerankers, rerankerChoice, onChange }: SearchOptionsProps) {
   return (
     <div className="grid gap-x-8 gap-y-2 rounded-xl bg-surface px-4 py-3 shadow-xs ring-1 ring-border sm:grid-cols-2">
+      {rerankers.length > 0 && (
+        <Row label="Reranker">
+          {RERANKER_CHOICES.map((choice) => {
+            const available = rerankerAvailable(choice, rerankers)
+            return (
+              <Chip
+                key={choice}
+                on={rerankerChoice === choice}
+                onClass={CHOSEN}
+                disabled={!available}
+                title={available ? RERANKER_SCOPES[choice] : 'Not switched on for this server'}
+                onClick={() => onChange({ ...view, reranker: choice })}
+              >
+                {RERANKER_LABELS[choice]}
+              </Chip>
+            )
+          })}
+        </Row>
+      )}
       <Row label="Order">
         {ORDERS.map((order) => (
           <Chip
@@ -110,16 +144,20 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-// A small rounded button that is either on (in `onClass` colours) or off (outlined).
+// A small rounded button that is either on (in `onClass` colours) or off (outlined); a disabled one is faded.
 function Chip({
   on,
   onClass,
   onClick,
+  disabled = false,
+  title,
   children,
 }: {
   on: boolean
   onClass: string
   onClick: () => void
+  disabled?: boolean
+  title?: string
   children: ReactNode
 }) {
   const colours = on ? onClass : 'bg-surface text-text-muted ring-1 ring-border-strong hover:bg-surface-hover'
@@ -128,7 +166,9 @@ function Chip({
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={`rounded-full px-2.5 py-1 text-xs font-medium ${colours}`}
+      disabled={disabled}
+      title={title}
+      className={`rounded-full px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${colours}`}
     >
       {children}
     </button>

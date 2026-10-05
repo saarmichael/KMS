@@ -9,9 +9,10 @@ from kms.search.fuse import AssetMatch, FusedUnit
 class SearchOrder(StrEnum):
     """How the results are ordered.
 
-    RELEVANCE: the top results by the reranker's relevance, whatever their match, the rest by
-    score. EXACT_FIRST: exact matches first, the rest by score. TIERED: exact, then partial, then
-    semantic matches, each by score. BLENDED: by score alone.
+    RELEVANCE: the results the reranker scored (the top ones, or all of them, by reranker) by its
+    relevance, whatever their match, the rest by score. EXACT_FIRST: exact matches first, the rest
+    by score. TIERED: exact, then partial, then semantic matches, each by score. BLENDED: by score
+    alone.
     """
 
     RELEVANCE = "relevance"

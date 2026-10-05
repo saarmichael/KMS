@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     ai_provider: Literal["fake", "real"] = "fake"
     gemini_api_key: str | None = None
     voyage_api_key: str | None = None
+    # TypeSafe's key, for the Jev reranker.
+    jev_api_key: str | None = None
     # The Gemini models that describe images and text files, in the order they are tried: the
     # next one answers when the one before is overloaded. A JSON list in the environment.
     vision_models: list[str] = Field(
@@ -46,8 +48,15 @@ class Settings(BaseSettings):
     # How many of one embed's batches are sent to Voyage at once. Voyage allows many requests
     # a minute, but a large file's batches together can pass its tokens-per-minute limit.
     embed_parallel_calls: int = Field(default=20, ge=1)
+    # Turns relevance on for both rerankers; each also needs real adapters and its vendor's key.
     rerank_enabled: bool = False
+    # Voyage's rerank model.
     rerank_model: str = "rerank-2.5"
+    jev_model: str = "jev-latest"
+    # Jev is asked about each result in a call of its own; this many are sent at once.
+    jev_parallel_calls: int = Field(default=50, ge=1)
+    # The reranker a search uses when it names none.
+    default_reranker: Literal["voyage", "jev"] = "voyage"
     # Where the real vendors' answers are recorded and replayed from; empty turns recording
     # off. A string rather than a Path, so that empty can mean off. Off unless set, because
     # every new search query adds a file, so a deployment would record without end.
@@ -69,7 +78,8 @@ class Settings(BaseSettings):
     hnsw_ef_search: int = 100
     page_size: int = 20
     max_assets_per_query: int = 100
-    # How many of the top results the reranker scores; one page, so only page 1 costs a call.
+    # How many of the top results Voyage scores; one page, so only page 1 costs a call. Jev scores
+    # every result.
     rerank_candidates: int = Field(default=20, ge=1)
     # How many (query, text) relevances are remembered, so a change of order or filter does not
     # pay for the same scores again.

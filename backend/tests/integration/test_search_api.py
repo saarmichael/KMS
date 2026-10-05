@@ -10,14 +10,14 @@ import pytest
 from PIL import Image
 from sqlalchemy import insert, update
 
-from kms.ai import set_embedder
+from kms.ai import set_embedder, set_reranker
 from kms.ai.errors import RetryPolicy
-from kms.ai.interfaces import Embedder, Reranker
+from kms.ai.interfaces import RERANKER_NAMES, Embedder, RerankDocument, Reranker
 from kms.config import get_settings
 from kms.ingest.worker import run_once
 from kms.models import EMBEDDING_DIMS, assets, search_units
-from kms.search import service
-from kms.search.service import embed_query, relevance_cache
+from kms.search.rerank import relevance_cache
+from kms.search.service import embed_query
 
 STUB_MODEL = "stub-embedder"
 
@@ -61,21 +61,33 @@ def stub_embedder():
 
 
 class StubReranker(Reranker):
-    """Scores each text with the relevance a test gave it, 0.5 when it gave none."""
+    """Scores each document by the relevance a test gave its text, 0.5 when it gave none."""
 
-    def __init__(self, relevance_by_text: dict[str, float] | None = None):
+    def __init__(
+        self, relevance_by_text: dict[str, float] | None = None, model: str = "stub-reranker"
+    ):
         self.relevance_by_text = relevance_by_text or {}
+        # Relevances are remembered per model, so two stubs used in one test need two models.
+        self.model = model
 
-    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float]:
-        return [self.relevance_by_text.get(text, 0.5) for text in documents]
+    def rerank(
+        self, query: str, documents: list[RerankDocument], policy: RetryPolicy
+    ) -> list[float]:
+        return [self.relevance_by_text.get(document.text, 0.5) for document in documents]
 
 
 @pytest.fixture
-def use_reranker(monkeypatch):
-    # Puts in the reranker a test builds. The cache outlives a test, so it is emptied on the way
-    # in and on the way out.
+def use_reranker():
+    # Puts in the reranker a test builds, as Voyage unless the test names another. The cache
+    # outlives a test, so it is emptied on the way in and on the way out.
     relevance_cache.clear()
-    yield lambda reranker: monkeypatch.setattr(service, "get_reranker", lambda: reranker)
+
+    def use(reranker: Reranker, name="voyage"):
+        set_reranker(name, reranker)
+
+    yield use
+    for name in RERANKER_NAMES:
+        set_reranker(name, None)
     relevance_cache.clear()
 
 
@@ -170,6 +182,7 @@ def test_rejects_invalid_parameters(client):
         {"collection": "demo", "q": "harbour", "asset_type": "video"},
         {"collection": "demo", "q": "harbour", "found_in": "title"},
         {"collection": "demo", "q": "a" * 501},
+        {"collection": "demo", "q": "harbour", "reranker": "cohere"},
     ]
     for params in invalid_params:
         response = client.get("/api/search", params=params)
@@ -206,6 +219,7 @@ def test_unknown_collection_gives_no_results(client, stub_embedder):
         "page": 1,
         "page_size": get_settings().page_size,
         "has_more": False,
+        "reranker": "voyage",
     }
 
 
@@ -566,3 +580,91 @@ def test_results_past_the_candidates_have_no_relevance(
     get_settings.cache_clear()
 
     assert [result["relevance"] for result in body["results"]] == [0.5, 0.5, None, None]
+
+
+def insert_harbour_assets(db, count):
+    """`count` assets that match "harbour" equally, in insertion order; each unit's text is
+    "harbour <place>", so a test can give each its own relevance."""
+    asset_ids = []
+    for place in range(count):
+        asset_id = insert_asset(db, "demo")
+        insert_unit(db, asset_id, "demo", body=f"harbour {place}", embedding=axis_vector(0))
+        asset_ids.append(str(asset_id))
+    return asset_ids
+
+
+def test_response_names_the_reranker(client, db, stub_embedder, use_reranker):
+    use_reranker(StubReranker())
+
+    assert search(client, "harbour")["reranker"] == "voyage"
+    assert search(client, "harbour", reranker="jev")["reranker"] == "jev"
+
+
+def test_default_reranker_comes_from_the_settings(
+    client, db, stub_embedder, use_reranker, monkeypatch
+):
+    monkeypatch.setenv("DEFAULT_RERANKER", "jev")
+    get_settings.cache_clear()
+    use_reranker(StubReranker(), name="jev")
+    insert_harbour_assets(db, 1)
+
+    body = search(client, "harbour")
+    get_settings.cache_clear()
+
+    assert body["reranker"] == "jev"
+    assert body["results"][0]["relevance"] == 0.5
+
+
+def test_jev_scores_every_result(client, db, stub_embedder, use_reranker, monkeypatch):
+    monkeypatch.setenv("RERANK_CANDIDATES", "2")
+    get_settings.cache_clear()
+    use_reranker(StubReranker(), name="jev")
+    insert_harbour_assets(db, 4)
+
+    body = search(client, "harbour", reranker="jev")
+    get_settings.cache_clear()
+
+    assert [result["relevance"] for result in body["results"]] == [0.5, 0.5, 0.5, 0.5]
+
+
+def test_jev_relevance_order_runs_across_pages(client, db, stub_embedder, use_reranker):
+    page_size = get_settings().page_size
+    asset_ids = insert_harbour_assets(db, page_size + 5)
+    # The last asset by score is on page 2 by score; Jev rates it above every other.
+    last_place = page_size + 4
+    use_reranker(StubReranker({f"harbour {last_place}": 0.99}), name="jev")
+
+    first_page = search(client, "harbour", page=1, reranker="jev")
+    second_page = search(client, "harbour", page=2, reranker="jev")
+
+    assert result_ids(first_page)[0] == asset_ids[last_place]
+    assert first_page["results"][0]["relevance"] == 0.99
+    assert all(result["relevance"] == 0.5 for result in second_page["results"])
+    shown = result_ids(first_page) + result_ids(second_page)
+    assert sorted(shown) == sorted(asset_ids)
+
+
+def test_voyage_leaves_a_result_past_the_candidates_where_it_is(
+    client, db, stub_embedder, use_reranker
+):
+    page_size = get_settings().page_size
+    asset_ids = insert_harbour_assets(db, page_size + 5)
+    last_place = page_size + 4
+    use_reranker(StubReranker({f"harbour {last_place}": 0.99}))
+
+    second_page = search(client, "harbour", page=2, reranker="voyage")
+
+    assert result_ids(second_page)[-1] == asset_ids[last_place]
+    assert second_page["results"][-1]["relevance"] is None
+
+
+def test_both_rerankers_score_the_same_search_apart(client, db, stub_embedder, use_reranker):
+    insert_harbour_assets(db, 2)
+    use_reranker(StubReranker({"harbour 0": 0.2, "harbour 1": 0.7}, "voyage-model"), "voyage")
+    use_reranker(StubReranker({"harbour 0": 0.9, "harbour 1": 0.1}, "jev-model"), "jev")
+
+    voyage = search(client, "harbour", reranker="voyage")
+    jev = search(client, "harbour", reranker="jev")
+
+    assert [result["relevance"] for result in voyage["results"]] == [0.7, 0.2]
+    assert [result["relevance"] for result in jev["results"]] == [0.9, 0.1]

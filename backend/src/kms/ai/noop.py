@@ -2,13 +2,19 @@
 fusion gave them."""
 
 from kms.ai.errors import RetryPolicy
-from kms.ai.interfaces import Reranker
+from kms.ai.interfaces import RerankDocument, Reranker
 
 
 class NoOpReranker(Reranker):
-    """Gives no relevance."""
+    """Gives no relevance.
 
-    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> None:
+    Attributes:
+        model: "none"; no model answers.
+    """
+
+    model = "none"
+
+    def rerank(self, query: str, documents: list[RerankDocument], policy: RetryPolicy) -> None:
         """Give no relevance.
 
         Args:

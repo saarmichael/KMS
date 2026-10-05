@@ -9,8 +9,10 @@
 //   <SearchBar onSearch> -> handleSearch(query) -> `activeSearch` state, `searching` = true
 //     -> <SearchResults key={id} collection query>   (makes the search request itself)
 //     -> page 1 arrives or fails -> onFirstPageDone -> `searching` = false (the box unlocks)
-//   <SearchOptions onChange> -> `view` state (order and filters) -> <SearchResults view>, used by the
-//     next search and reloading the results shown; kept across searches in this collection
+//   <SearchOptions onChange> -> `view` state (reranker, order and filters) -> <SearchResults view>, used by
+//     the next search and reloading the results shown; kept across searches in this collection
+//   view.reranker "voyage" or "jev" -> one <SearchResults reranker>; "both" -> two side by side, one per
+//     reranker, each its own requests and pages; the search box unlocks when both first pages are done
 //   Filters button -> `filtersOpen` state -> <SearchOptions> under the box on the home page
 //   Browse all -> `browsing` state -> the file list shows under the filters while no search is active
 //   <SearchBar onCancel> -> handleCancel() -> no active search: the files show again at once, and
@@ -18,9 +20,9 @@
 //   <CollectionFiles collection filesVersion>   (files and retries) stays mounted the whole time and is
 //     only hidden, so opening it or leaving a search needs no reload
 //   a tile or a result card -> handleOpen(asset, snippet, query) -> `detail` state -> <AssetDetailDialog>
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import type { Asset, SearchView, Snippet } from '../api/types'
+import type { Asset, RerankerName, SearchView, Snippet } from '../api/types'
 import { DEFAULT_VIEW } from '../searchView'
 import type { Theme } from '../theme'
 import AssetDetailDialog from './AssetDetailDialog'
@@ -28,7 +30,7 @@ import CollectionFiles from './CollectionFiles'
 import SearchBar from './SearchBar'
 import SearchOptions from './SearchOptions'
 import SearchResults from './SearchResults'
-import { AdjustmentsIcon, ChevronDownIcon } from './icons'
+import { AdjustmentsIcon, ArrowLeftIcon, ChevronDownIcon } from './icons'
 // The Sift logo: the whole word on the home page; in the bar above results only the mark, the i on its own,
 // which stays legible at that small height. Each in a light-background and a dark-background version, for
 // the two themes.
@@ -42,7 +44,12 @@ type CollectionViewProps = {
   filesVersion: number
   theme: Theme
   demoMode: boolean
+  rerankers: RerankerName[]
+  defaultReranker: RerankerName
 }
+
+// The two columns shown when both rerankers are chosen, left to right.
+const BOTH_RERANKERS: RerankerName[] = ['voyage', 'jev']
 
 type ActiveSearch = {
   query: string
@@ -57,7 +64,14 @@ type OpenDetail = {
   query: string | null
 }
 
-export default function CollectionView({ collection, filesVersion, theme, demoMode }: CollectionViewProps) {
+export default function CollectionView({
+  collection,
+  filesVersion,
+  theme,
+  demoMode,
+  rerankers,
+  defaultReranker,
+}: CollectionViewProps) {
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null)
   const [searching, setSearching] = useState(false)
   const [detail, setDetail] = useState<OpenDetail | null>(null)
@@ -65,6 +79,10 @@ export default function CollectionView({ collection, filesVersion, theme, demoMo
   const [view, setView] = useState<SearchView>(DEFAULT_VIEW)
   const [browsing, setBrowsing] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // How many lists of results still owe their first page; the search box stays locked until none do.
+  // A ref, not state: it is only counted down, never drawn.
+  const firstPagesPending = useRef(0)
+
 
   // Switches between the home layout and the compact one with an animation: the browser snapshots the page,
   // `update` changes the state, and the logo and the search box (named in index.css) glide to their new
@@ -82,6 +100,7 @@ export default function CollectionView({ collection, filesVersion, theme, demoMo
   // Every search gets a new id. Used as the results' key, it gives each search a fresh component:
   // page 1, nothing left over, and a late answer from an earlier search is dropped with the old one.
   function handleSearch(query: string) {
+    firstPagesPending.current = rerankerChoice === 'both' ? BOTH_RERANKERS.length : 1
     changeLayout(() => {
       setActiveSearch((previous) => ({ query, id: (previous?.id ?? 0) + 1 }))
       setSearching(true)
@@ -114,12 +133,19 @@ export default function CollectionView({ collection, filesVersion, theme, demoMo
 
   // SearchResults starts its request again whenever this function changes, so it must stay the same
   // function across renders; useCallback with no dependencies keeps it so.
-  const handleFirstPageDone = useCallback(() => setSearching(false), [])
+  const handleFirstPageDone = useCallback(() => {
+    firstPagesPending.current -= 1
+    if (firstPagesPending.current <= 0) {
+      setSearching(false)
+    }
+  }, [])
 
   function handleOpen(asset: Asset, snippet: Snippet | null, query: string | null) {
     setDetail({ asset, snippet, query })
   }
 
+  // Until the user picks a reranker, the server's default is used; it arrives with the config.
+  const rerankerChoice = view.reranker ?? defaultReranker
   const compact = activeSearch !== null || browsing
   const fullLogo = theme === 'dark' ? logoOnDark : logoOnLight
   const mark = theme === 'dark' ? markOnDark : markOnLight
@@ -183,19 +209,54 @@ export default function CollectionView({ collection, filesVersion, theme, demoMo
       </div>
       {showFilters && (
         <div className={compact ? '' : 'mx-auto max-w-3xl'}>
-          <SearchOptions view={view} onChange={setView} />
+          <SearchOptions view={view} rerankers={rerankers} rerankerChoice={rerankerChoice} onChange={setView} />
         </div>
       )}
-      {activeSearch && (
+      {activeSearch && rerankerChoice !== 'both' && (
         <SearchResults
           key={activeSearch.id}
           collection={collection}
           query={activeSearch.query}
           view={view}
+          reranker={rerankerChoice}
           onBack={handleBackToFiles}
           onFirstPageDone={handleFirstPageDone}
           onOpen={handleOpen}
         />
+      )}
+      {activeSearch && rerankerChoice === 'both' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-text-muted">
+              Results for <span className="font-medium text-text">"{activeSearch.query}"</span>, ranked by each
+              reranker
+            </p>
+            <button
+              type="button"
+              onClick={handleBackToFiles}
+              className="flex items-center gap-1.5 text-sm font-medium text-accent-text hover:text-accent"
+            >
+              <ArrowLeftIcon className="size-4" />
+              Back to all files
+            </button>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {BOTH_RERANKERS.map((reranker) => (
+              <section key={`${activeSearch.id}-${reranker}`} aria-label={`Ranked by ${reranker}`} className="min-w-0">
+                <SearchResults
+                  collection={collection}
+                  query={activeSearch.query}
+                  view={view}
+                  reranker={reranker}
+                  column
+                  onBack={handleBackToFiles}
+                  onFirstPageDone={handleFirstPageDone}
+                  onOpen={handleOpen}
+                />
+              </section>
+            ))}
+          </div>
+        </div>
       )}
       {/* Hidden rather than removed: the list and its polling keep running, so the files show at once
           when opened or when a search ends. */}

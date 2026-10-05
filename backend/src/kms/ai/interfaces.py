@@ -109,17 +109,55 @@ class Embedder(ABC):
         """
 
 
+# The rerankers a search can ask for.
+RerankerName = Literal["voyage", "jev"]
+RERANKER_NAMES: tuple[RerankerName, ...] = ("voyage", "jev")
+
+
+@dataclass(frozen=True)
+class RerankDocument:
+    """One search result as a reranker reads it: the part of the asset that matched, and the few
+    facts that say what the asset is.
+
+    Frozen and made of plain values, so a document can key the relevance cache.
+
+    Attributes:
+        text: The snippet's text: the passage, the description, the text read from the image, or
+            the file name.
+        kind: Which part of the asset `text` is: "metadata", "content", "image", "visible_text"
+            or "filename".
+        title: The asset's title; None before the asset is described.
+        filename: The file's name as uploaded.
+        tags: The asset's tags; empty before the asset is described.
+    """
+
+    text: str
+    kind: str
+    title: str | None
+    filename: str
+    tags: tuple[str, ...]
+
+
 class Reranker(ABC):
-    """Judges how well each of a short list of search results answers the query, by reading the
-    query and each result together."""
+    """Judges how well each of a list of search results answers the query, by reading the query
+    and each result together.
+
+    Attributes:
+        model: The rerank model's id; a relevance is only ever reused for the same model.
+    """
+
+    model: str
 
     @abstractmethod
-    def rerank(self, query: str, documents: list[str], policy: RetryPolicy) -> list[float] | None:
+    def rerank(
+        self, query: str, documents: list[RerankDocument], policy: RetryPolicy
+    ) -> list[float] | None:
         """Score each document by how well it answers the query.
 
         Args:
             query: The query as typed.
-            documents: One text per result.
+            documents: One per result. Each reranker reads what it can use: a text-only model
+                reads `text`, a model that takes structured input may read every field.
             policy: How hard to try the vendor call, chosen by the caller.
 
         Returns:

@@ -290,7 +290,8 @@ Deletes database rows only; the files stay on disk (D13).
 | `collection` | string | yes | Name rule. Search never crosses collections |
 | `q` | string | yes | The query as typed. Empty, only spaces or over 500 characters → `422` |
 | `page` | integer | no, default `1` | `1` or more. Pages hold 20 results (D32) |
-| `order` | string | no, default `relevance` | `relevance`: the top 20 by `relevance`, whatever their `match`, the rest by score (D56). `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
+| `order` | string | no, default `relevance` | `relevance`: the results that have a `relevance`, sorted by it, whatever their `match`; with `reranker=voyage` that is the top 20 and the rest follow by score, with `reranker=jev` it is every result (D56, D61). `exact_first`: exact matches first, the rest by score. `tiered`: exact, then partial, then semantic, each by score. `blended`: by score alone (D50) |
+| `reranker` | string | no, default the server's `DEFAULT_RERANKER` (`voyage`) | Which reranker gives the `relevance`: `voyage` or `jev` (D61). Any other value → `422` |
 | `match` | string, repeatable | no, default all | Keep only results whose `match` is one of these: `exact`, `partial`, `semantic`. Repeated for several: `match=exact&match=partial` |
 | `asset_type` | string, repeatable | no, default all | Keep only `image` or `text` assets |
 | `found_in` | string, repeatable | no, default all | Keep only matches in these parts of an asset: `content`, `metadata`, `image`, `visible_text`, `filename` (the values of `snippet.kind`). The snippet then comes from a chosen part |
@@ -300,7 +301,7 @@ Deletes database rows only; the files stay on disk (D13).
 | Status | Body | When |
 | --- | --- | --- |
 | `200` | `SearchResponse` | An unknown collection or no match gives `results: []` |
-| `422` | error | `collection` or `q` missing or invalid, `q` over 500 characters, `page` below 1, a value of `order`, `match`, `asset_type` or `found_in` outside the list |
+| `422` | error | `collection` or `q` missing or invalid, `q` over 500 characters, `page` below 1, a value of `order`, `reranker`, `match`, `asset_type` or `found_in` outside the list |
 | `503` | error | The embedding service did not answer for the query |
 
 ```ts
@@ -309,12 +310,13 @@ type SearchResponse = {
   page: number;              // echoes the request
   page_size: number;         // 20
   has_more: boolean;         // true if "show more" would return more results
+  reranker: "voyage" | "jev";  // the reranker that gave the relevances: the request's, or the default (D61)
 };
 
 type SearchResult = {
   asset: Asset;              // always status "ready"
   score: number;             // 0 to 1; 1 is the best result of the whole query (not of the page)
-  relevance: number | null;  // 0 to 1: how well it answers the query, as the reranker judged it; null when not scored (D56)
+  relevance: number | null;  // 0 to 1: how well it answers the query, as the reranker judged it; null when not scored (D56, D61)
   snippet: Snippet;          // why this asset matched
   match: "exact" | "partial" | "semantic";   // how it matched (D50)
 };
@@ -333,11 +335,18 @@ type Snippet = {
 - `score` is for display only: the UI may dim results with a low score. Nothing is cut by score; every
   match is returned (design doc, "Where the cut between match and noise is drawn").
 - `relevance` says how close a match really is; `score` only says where it ranks, so the top result
-  always has `score` 1.0, even when nothing matches well. The reranker reads the query with the
-  snippet's `text` and scores the first 20 results of the requested order (after the filters), in every
-  order; only `order=relevance` sorts them by it. Results after those 20 (page 2 onwards), and every
-  result while reranking is off or when the reranker could not be reached, have `relevance: null`; the
-  search itself still succeeds.
+  always has `score` 1.0, even when nothing matches well. With `reranker=voyage` (Voyage
+  `rerank-2.5`), it reads the query with the snippet's `text` and scores the first 20 results of the
+  requested order (after the filters), only when the page starts among them, in every order; only
+  `order=relevance` sorts them by it. Results after those 20 have `relevance: null`. With `reranker=jev`
+  (TypeSafe's Jev, model `jev-latest`) it scores every result of the search (after the filters and the
+  100-result cap), on every page, so every result has a `relevance` and `order=relevance` sorts the whole
+  list, all pages, by it. Jev's `relevance` is its calibrated probability (0 to 1) that the result
+  answers the query; it reads the snippet's `text` with the asset's title, file name and tags, where
+  Voyage reads only the `text`. The other orders keep their order and still show `relevance` on the
+  results the reranker scored. Relevances are remembered per model, query and result, so later pages and
+  a change of order or filter cost no new calls. While reranking is off, or when the reranker could not
+  be reached, every result has `relevance: null`; the search itself still succeeds.
 - `snippet.kind` says what matched best. `"content"`: a passage of a text file; `text` is that passage and
   `start_char`/`end_char` locate it in the file, so the detail view can highlight it. `"metadata"`: the
   AI description matched; `text` is the asset's description. `"image"`: the pixels matched; there is no
@@ -414,10 +423,16 @@ screen depends on it.
 ```ts
 type AppConfig = {
   demo_mode: boolean;   // true: the UI greys out "Delete collection", and 6.7 answers 403
+  rerankers: ("voyage" | "jev")[];   // the rerankers that are on (D61); empty while reranking is off
+  default_reranker: "voyage" | "jev";   // used by 6.8 when `reranker` is left out
 };
 ```
 
-If the call fails, the UI treats `demo_mode` as `false`; the server still refuses the delete.
+A reranker is on when `RERANK_ENABLED=true`, `AI_PROVIDER=real` and that vendor's key is set
+(`VOYAGE_API_KEY` for `voyage`, `JEV_API_KEY` for `jev`).
+
+If the call fails, the UI treats `demo_mode` as `false` and `rerankers` as empty; the server still
+refuses the delete.
 
 ---
 
@@ -433,9 +448,10 @@ If the call fails, the UI treats `demo_mode` as `false`; the server still refuse
 | Upload (drag and drop, multi-file) | `POST /api/assets` once per file, then refresh the list and the collections |
 | "Already in this collection" / alias note | `deduplicated` in the upload response; `aliases` on the asset |
 | Failed asset: error text + Retry | `asset.error`; `POST /api/assets/{id}/retry` |
-| Search results | `GET /api/search?collection=&q=` |
+| Search results | `GET /api/search?collection=&q=&reranker=` |
 | "Show more" | `GET /api/search?…&page=N+1` while `has_more` |
 | Relevance on each result | `relevance`, shown as a number; hidden when `null` |
+| Reranker chips (Voyage / Jev / Both) in the filters | `rerankers` from `GET /api/config`; a chip the server cannot serve is greyed out. "Both" makes two searches, `reranker=voyage` and `reranker=jev`, shown side by side, each with its own "Show more" |
 | "Found in: … / identical to: …" | `asset.filename` and `asset.aliases` |
 | Thumbnails | `<img src="/api/assets/{id}/file">` |
 | Asset detail view | the `Asset` already in hand, or `GET /api/assets/{id}`; the file via `/api/assets/{id}/file`; `snippet` offsets for highlighting |
@@ -454,3 +470,4 @@ If the call fails, the UI treats `demo_mode` as `false`; the server still refuse
 | D52 | The text read from an image is its own part: `snippet.kind` and `found_in` value `"visible_text"` | 6.8 |
 | D56 | The reranker's `relevance` on the first 20 results; `order=relevance`, the default, sorts them by it | 6.8 |
 | D58 | Demo mode: `GET /api/config` tells the UI; deleting a collection is refused with `403` | 6.7, 6.10 |
+| D61 | The reranker is chosen per search: `reranker=voyage` scores the top 20, `reranker=jev` every result; `GET /api/config` lists the rerankers that are on | 6.8, 6.10 |

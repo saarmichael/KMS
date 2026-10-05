@@ -1,11 +1,8 @@
-"""One search: both paths at once, fused into assets, the top ones scored by the reranker, one
-page of them with a snippet each."""
+"""The pieces a search is made of: the query's vector, both paths at once, the rows and snippets of
+the results, and the sentence closest to the query. `pipeline.py` puts them together."""
 
 import logging
 import re
-import threading
-import time
-from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -14,15 +11,14 @@ from functools import lru_cache
 from sqlalchemy import select
 from sqlalchemy.engine import RowMapping
 
-from kms.ai import get_embedder, get_reranker
+from kms.ai import get_embedder
 from kms.ai.errors import INTERACTIVE_POLICY, OPTIONAL_POLICY
 from kms.config import get_settings
 from kms.db import get_engine
 from kms.models import assets, search_units
 from kms.search import MatchKind, UnitHit
-from kms.search.fuse import AssetMatch, fuse_units, group_by_asset
+from kms.search.fuse import AssetMatch
 from kms.search.keyword import keyword_search
-from kms.search.order import SearchOrder, filter_matches, filter_units, order_matches
 from kms.search.sentences import cosine_similarity, split_sentences
 from kms.search.vector import vector_search
 
@@ -122,58 +118,6 @@ def embed_query(model: str, query: str) -> tuple[float, ...]:
     except Exception as error:
         raise QueryEmbeddingFailed(str(error)) from error
     return tuple(vectors[0])
-
-
-# Each (rerank model, query, text) scored so far, the most recently used last. A text's relevance
-# depends only on the query, not on the other results, so it holds whatever the order or filter.
-relevance_cache: OrderedDict[tuple[str, str, str], float] = OrderedDict()
-# Searches run on several threads at once, and the cache must not change while one of them reads it.
-relevance_cache_lock = threading.Lock()
-
-
-def rerank_with_cache(query: str, documents: list[str]) -> list[float] | None:
-    """Score each document against the query, asking the reranker only about texts not scored
-    before.
-
-    Args:
-        query: The normalised query.
-        documents: One text per result.
-
-    Returns:
-        One relevance per document, in the order of `documents`; None when the reranker gives no
-        relevance. At most RERANK_CACHE_SIZE scores are kept; the least recently used goes first.
-
-    Raises:
-        Exception: A vendor error, raised as it comes; nothing from the failed call is kept.
-    """
-    settings = get_settings()
-    model = settings.rerank_model
-
-    unseen = []
-    with relevance_cache_lock:
-        for text in documents:
-            if (model, query, text) not in relevance_cache and text not in unseen:
-                unseen.append(text)
-
-    # The call is made outside the lock, so other searches are not held up by it.
-    if unseen:
-        # Relevance only adds to results the user already has, so it is never waited for.
-        relevances = get_reranker().rerank(query, unseen, OPTIONAL_POLICY)
-        if relevances is None:
-            return None
-        with relevance_cache_lock:
-            for text, relevance in zip(unseen, relevances, strict=True):
-                relevance_cache[(model, query, text)] = relevance
-
-    with relevance_cache_lock:
-        found_relevances = []
-        for text in documents:
-            key = (model, query, text)
-            found_relevances.append(relevance_cache[key])
-            relevance_cache.move_to_end(key)
-        while len(relevance_cache) > settings.rerank_cache_size:
-            relevance_cache.popitem(last=False)
-    return found_relevances
 
 
 def build_snippet(row: RowMapping) -> MatchSnippet:
@@ -348,128 +292,3 @@ def mark_closest_sentences(
         )
         marked[place] = replace(found[place], snippet=snippet)
     return marked
-
-
-def score_relevance(query: str, found: list[FoundAsset], order: SearchOrder) -> list[FoundAsset]:
-    """Give each result the reranker's relevance, judged on its snippet's text.
-
-    Args:
-        query: The normalised query.
-        found: The results to score, in the chosen order.
-        order: The order the user chose; only RELEVANCE is sorted here.
-
-    Returns:
-        The same results with `relevance` set: by relevance, highest first, for RELEVANCE (equal
-        ones keep their order); in their order for any other. `found` unchanged when the
-        reranker gives no relevance, and on a vendor error: relevance only adds to results the
-        user already has, so it never fails the search.
-    """
-    texts = [found_asset.snippet.text for found_asset in found]
-    try:
-        relevances = rerank_with_cache(query, texts)
-    except Exception as error:
-        logger.warning("rerank_failed error=%s", type(error).__name__)
-        return found
-    if relevances is None:
-        return found
-
-    scored = []
-    for found_asset, relevance in zip(found, relevances, strict=True):
-        scored.append(replace(found_asset, relevance=relevance))
-    if order == SearchOrder.RELEVANCE:
-        # sorted() is stable, so results of equal relevance keep their score order.
-        scored = sorted(scored, key=lambda found_asset: -found_asset.relevance)
-    return scored
-
-
-def search(
-    collection: str,
-    query: str,
-    page: int,
-    order: SearchOrder,
-    match_kinds: list[MatchKind] | None,
-    asset_types: list[str] | None,
-    unit_kinds: list[str] | None,
-) -> ResultPage:
-    """Search one collection and return one page of assets, in the chosen order.
-
-    Args:
-        collection: The collection to search in; the caller has checked its name.
-        query: The query as typed; the caller has checked it is not blank.
-        page: The page to return, from 1.
-        order: How to order the assets.
-        match_kinds: Keep only assets whose strongest match is one of these; None keeps all.
-        asset_types: Keep only assets of these types; None keeps all.
-        unit_kinds: Keep only matches in these parts of an asset; None keeps all.
-
-    Returns:
-        The page's assets with their scores, relevances and snippets. Empty, with `has_more`
-        false, when nothing matches or the page is past the end.
-
-    Raises:
-        QueryEmbeddingFailed: The query could not be embedded.
-        Exception: A database error, raised as it comes.
-    """
-    started = time.perf_counter()
-    settings = get_settings()
-
-    # Normalise the query.
-    query = normalise_query(query)
-    model = get_embedder().model
-
-    # Search both paths.
-    keyword_hits, vector_hits = run_both_paths(collection, query, model, settings.units_per_path)
-
-    # Fuse. Scores are measured against the best unit before filtering, so a filter never
-    # changes the scores of what it keeps.
-    units = fuse_units(keyword_hits, vector_hits)
-    top_score = units[0].score if units else 1.0
-
-    # Filter, group into assets, order, cap. The cap comes last, so a filter can reach an
-    # asset that is far down the unfiltered list.
-    units = filter_units(units, asset_types, unit_kinds)
-    matches = group_by_asset(units, top_score)
-    matches = filter_matches(matches, match_kinds)
-    matches = order_matches(matches, order)
-    matches = matches[: settings.max_assets_per_query]
-
-    # Slice the page.
-    page_start = (page - 1) * settings.page_size
-    page_end = page * settings.page_size
-    page_matches = matches[page_start:page_end]
-    has_more = len(matches) > page_end
-
-    # Load rows and snippets. A page that starts among the top results needs all of them, scored
-    # together, because in the relevance order any of them may land on it.
-    candidate_count = settings.rerank_candidates
-    reranked = 0
-    if page_start < candidate_count:
-        fetched = fetch_found_assets(matches[: max(candidate_count, page_end)])
-        candidates = score_relevance(query, fetched[:candidate_count], order)
-        for candidate in candidates:
-            if candidate.relevance is not None:
-                reranked += 1
-        results = (candidates + fetched[candidate_count:])[page_start:page_end]
-    else:
-        results = fetch_found_assets(page_matches)
-
-    # Point the passages matched by meaning at their closest sentence. The query vector is
-    # already cached, so this asks the embedder only for the sentences.
-    results = mark_closest_sentences(embed_query(model, query), results)
-    sentence_count = 0
-    for result in results:
-        if result.snippet.sentence_start is not None:
-            sentence_count += 1
-
-    logger.info(
-        "search_done collection=%s units_keyword=%s units_vector=%s assets=%s reranked=%s "
-        "sentences=%s ms=%s",
-        collection,
-        len(keyword_hits),
-        len(vector_hits),
-        len(matches),
-        reranked,
-        sentence_count,
-        round((time.perf_counter() - started) * 1000, 1),
-    )
-    return ResultPage(results=results, has_more=has_more)

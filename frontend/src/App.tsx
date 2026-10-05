@@ -9,8 +9,10 @@
 //     -> <DeleteCollectionDialog name assetCount>         (the selected one)
 //   getAppConfig() -> `demoMode` -> Delete button greyed out, with a hint on hover saying why;
 //     and a Demo label by the logo in <CollectionView demoMode>
+//   getAppConfig() -> `rerankers`, `defaultReranker` -> <CollectionView> -> the reranker choice in the filters
 //   Delete button -> dialog -> handleDelete() -> deleteCollection() -> refreshCollections()
-//   selected collection -> <CollectionView collection filesVersion theme demoMode>   (search box, then its files or results)
+//   selected collection -> <CollectionView collection filesVersion theme demoMode rerankers defaultReranker>
+//     (search box, then its files or results)
 //
 // How an upload flows:
 //   Upload button -> <UploadDialog onFiles>, or files dropped anywhere -> <PageDropZone onFiles>
@@ -19,7 +21,7 @@
 //     when a file ends: `filesVersion` + 1, so CollectionFiles reloads its list, and refreshCollections()
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, deleteCollection, getAppConfig, listCollections, onPasswordNeeded, uploadAsset } from './api/client'
-import type { Collection } from './api/types'
+import type { Collection, RerankerName } from './api/types'
 import { defaultCollection, withDrafts } from './collections'
 import CollectionDropdown from './components/CollectionDropdown'
 import CollectionView from './components/CollectionView'
@@ -53,6 +55,8 @@ export default function App() {
   // Set by any request answered 401; the whole app then gives way to the Password needed screen.
   const [passwordNeeded, setPasswordNeeded] = useState(false)
   const [demoMode, setDemoMode] = useState(false)
+  const [rerankers, setRerankers] = useState<RerankerName[]>([])
+  const [defaultReranker, setDefaultReranker] = useState<RerankerName>('voyage')
 
   useEffect(() => {
     onPasswordNeeded(() => setPasswordNeeded(true))
@@ -78,10 +82,15 @@ export default function App() {
     refreshCollections()
   }, [])
 
-  // If the config cannot be read, delete stays enabled: the server still refuses it in demo mode.
+  // If the config cannot be read, delete stays enabled: the server still refuses it in demo mode. The
+  // reranker choice then stays hidden, and searches use the server's default.
   useEffect(() => {
     getAppConfig()
-      .then((config) => setDemoMode(config.demo_mode))
+      .then((config) => {
+        setDemoMode(config.demo_mode)
+        setRerankers(config.rerankers)
+        setDefaultReranker(config.default_reranker)
+      })
       .catch(() => {})
   }, [])
 
@@ -197,6 +206,8 @@ export default function App() {
         filesVersion={filesVersion}
         theme={theme}
         demoMode={demoMode}
+        rerankers={rerankers}
+        defaultReranker={defaultReranker}
       />
     )
   }

@@ -1,8 +1,13 @@
 // The results of one search in one collection. This component makes the search request, keeps the
 // pages loaded so far, and shows them as cards.
 //
+// With both rerankers chosen, CollectionView shows two of these side by side, one per reranker, each with
+// `column` set: a heading names its reranker, each card shows its place in the list, and the back link is
+// left to CollectionView, above both.
+//
 // How data flows:
-//   loadPage(1) -> search(collection, query, 1, view) -> GET /api/search?collection=&q=&page=1&order=&match=…
+//   loadPage(1) -> search(collection, query, 1, view, reranker)
+//     -> GET /api/search?collection=&q=&page=1&order=&reranker=&match=…
 //     -> { results, page, has_more } -> `results` state (each page appended) and `hasMore`
 //     -> <SearchResultCard result query> for each result
 //   "Show more" -> loadPage(page + 1) -> the same request for the next page, appended below
@@ -13,7 +18,8 @@
 //   <SearchResultCard onOpen> -> onOpen(asset, snippet, query), passed up to CollectionView's detail dialog
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, search } from '../api/client'
-import type { Asset, SearchResult, SearchView, Snippet } from '../api/types'
+import type { Asset, RerankerName, SearchResult, SearchView, Snippet } from '../api/types'
+import { RERANKER_LABELS, RERANKER_SCOPES } from '../searchView'
 import { ArrowLeftIcon, ExclamationIcon, SearchIcon, SpinnerIcon } from './icons'
 import SearchResultCard from './SearchResultCard'
 import StatusMessage from './StatusMessage'
@@ -22,6 +28,8 @@ type SearchResultsProps = {
   collection: string
   query: string
   view: SearchView
+  reranker: RerankerName
+  column?: boolean
   onBack: () => void
   onFirstPageDone: () => void
   onOpen: (asset: Asset, snippet: Snippet, query: string) => void
@@ -33,6 +41,8 @@ export default function SearchResults({
   collection,
   query,
   view,
+  reranker,
+  column = false,
   onBack,
   onFirstPageDone,
   onOpen,
@@ -56,7 +66,7 @@ export default function SearchResults({
   // A cancelled request changes nothing: the component is on its way out, or the view has changed.
   const loadPage = useCallback(
     (pageNumber: number, signal?: AbortSignal): Promise<void> => {
-      return search(collection, query, pageNumber, view, signal)
+      return search(collection, query, pageNumber, view, reranker, signal)
         .then((response) => {
           // The answer may arrive just as the request is cancelled.
           if (signal?.aborted) {
@@ -90,7 +100,7 @@ export default function SearchResults({
           }
         })
     },
-    [collection, query, view, onFirstPageDone],
+    [collection, query, view, reranker, onFirstPageDone],
   )
 
   // Loads the first page when the search starts, and again when the view changes. Leaving (Cancel, Back,
@@ -118,7 +128,8 @@ export default function SearchResults({
 
   const reloading = shownView !== view
 
-  const backLink = (
+  // In a column the back link is CollectionView's, shown once above both columns.
+  const backLink = column ? null : (
     <button
       type="button"
       onClick={onBack}
@@ -188,19 +199,37 @@ export default function SearchResults({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-sm text-text-muted">
-          <span>
-            {count} {resultsWord} for <span className="font-medium text-text">"{query}"</span>
-          </span>
-          {reloading && <SpinnerIcon className="size-4 text-accent-text" />}
-        </p>
-        {backLink}
-      </div>
+      {column ? (
+        <div className="flex items-baseline justify-between gap-3 border-b border-border pb-2">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-text">
+            {RERANKER_LABELS[reranker]}
+            {reloading && <SpinnerIcon className="size-4 text-accent-text" />}
+          </h2>
+          <p className="text-xs text-text-muted">
+            {RERANKER_SCOPES[reranker]} · {count} {resultsWord}
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="flex items-center gap-2 text-sm text-text-muted">
+            <span>
+              {count} {resultsWord} for <span className="font-medium text-text">"{query}"</span>
+            </span>
+            {reloading && <SpinnerIcon className="size-4 text-accent-text" />}
+          </p>
+          {backLink}
+        </div>
+      )}
 
       <ul className="space-y-3">
-        {results.map((result) => (
-          <SearchResultCard key={result.asset.id} result={result} query={query} onOpen={onOpen} />
+        {results.map((result, index) => (
+          <SearchResultCard
+            key={result.asset.id}
+            result={result}
+            query={query}
+            rank={column ? index + 1 : undefined}
+            onOpen={onOpen}
+          />
         ))}
       </ul>
 
