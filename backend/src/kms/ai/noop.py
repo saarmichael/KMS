@@ -3,6 +3,7 @@ fusion gave them."""
 
 from kms.ai.errors import RetryPolicy
 from kms.ai.interfaces import Reranker
+from kms.config import Settings
 
 
 class NoOpReranker(Reranker):
@@ -20,3 +21,15 @@ class NoOpReranker(Reranker):
             None. Never raises.
         """
         return None
+
+
+def build_noop_reranker(settings: Settings) -> NoOpReranker:
+    """Build the reranker that gives no relevance.
+
+    Args:
+        settings: The app settings; nothing is read.
+
+    Returns:
+        A NoOpReranker. Never raises.
+    """
+    return NoOpReranker()

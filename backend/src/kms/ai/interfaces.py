@@ -46,7 +46,14 @@ class PhotoDetails:
 
 
 class Vision(ABC):
-    """Describes one file as search metadata."""
+    """Describes one file as search metadata.
+
+    Attributes:
+        model: The id of the model asked first. A call may still be answered by another one;
+            `Description.model` names the model that did.
+    """
+
+    model: str
 
     @abstractmethod
     def describe(
@@ -83,9 +90,11 @@ class Embedder(ABC):
     Attributes:
         model: The embedding model's id. One embedder is always one model, because vectors
             from two models cannot be compared.
+        dims: The length of every vector.
     """
 
     model: str
+    dims: int
 
     @abstractmethod
     def embed(

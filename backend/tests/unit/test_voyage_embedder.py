@@ -7,10 +7,8 @@ import pytest
 from PIL import Image
 from voyageai import error as voyage_errors
 
-from kms.ai import get_embedder
 from kms.ai.errors import BACKGROUND_POLICY, RetryPolicy
 from kms.ai.voyage import VoyageClients, VoyageEmbedder, classify_voyage_error
-from kms.config import get_settings
 
 MODEL = "voyage-test-model"
 DIMS = 1024
@@ -205,25 +203,6 @@ def test_a_failed_batch_fails_the_whole_call(sleeps):
         )
     # A permanent error is not retried: one call per batch.
     assert len(client.calls) == 3
-
-
-def test_real_provider_builds_the_voyage_embedder(real_provider, monkeypatch):
-    # A dummy key: building the client makes no call.
-    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
-    get_settings.cache_clear()
-    embedder = get_embedder()
-    assert isinstance(embedder, VoyageEmbedder)
-    assert embedder.model == get_settings().embedding_model
-    assert embedder.dims == get_settings().embedding_dims
-    assert embedder.parallel_calls == get_settings().embed_parallel_calls
-
-
-def test_real_provider_without_a_key_raises(real_provider, monkeypatch):
-    # Empty in the environment, so a key in .env cannot fill it in.
-    monkeypatch.setenv("VOYAGE_API_KEY", "")
-    get_settings.cache_clear()
-    with pytest.raises(ValueError, match="VOYAGE_API_KEY"):
-        get_embedder()
 
 
 def test_client_timeout_follows_the_policy(sleeps):

@@ -4,12 +4,9 @@ from pathlib import PurePath
 import pytest
 from pydantic import ValidationError
 
-from kms.ai import get_vision
 from kms.ai.errors import BACKGROUND_POLICY
 from kms.ai.fake import FakeEmbedder, FakeVision
 from kms.ai.fake_fixtures import FIXTURES
-from kms.ai.gemini import GeminiVision
-from kms.config import get_settings
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -80,10 +77,3 @@ def test_fake_embedder_images_differ_by_bytes():
         [b"image one", b"image two"], "document", BACKGROUND_POLICY
     )
     assert first != second
-
-
-def test_real_provider_builds_gemini_vision(real_provider, monkeypatch):
-    # A dummy key: building the client makes no call.
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    get_settings.cache_clear()
-    assert isinstance(get_vision(), GeminiVision)

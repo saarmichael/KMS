@@ -21,6 +21,7 @@ from voyageai import error as voyage_errors
 
 from kms.ai.errors import ErrorVerdict, RetryPolicy, call_with_retries
 from kms.ai.interfaces import Embedder, Reranker
+from kms.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,20 @@ class VoyageClients:
                 client = voyageai.Client(api_key=self.api_key, max_retries=0, timeout=seconds)
                 self._clients[seconds] = client
             return client
+
+
+# One set of clients for the embedder and the reranker, so a timeout's client is built once.
+@functools.lru_cache
+def shared_voyage_clients(api_key: str) -> VoyageClients:
+    """Return the Voyage clients of one API key, the same set for the life of the process.
+
+    Args:
+        api_key: The Voyage API key.
+
+    Returns:
+        The same VoyageClients on every call with the same key. Never raises.
+    """
+    return VoyageClients(api_key)
 
 
 class VoyageEmbedder(Embedder):
@@ -282,3 +297,45 @@ class VoyageReranker(Reranker):
 
         logger.info("voyage_reranked documents=%d duration_ms=%d", len(documents), duration_ms)
         return relevances
+
+
+def build_voyage_embedder(settings: Settings) -> VoyageEmbedder:
+    """Build the Voyage embedder from settings.
+
+    Args:
+        settings: The app settings; reads VOYAGE_API_KEY, EMBEDDING_MODEL, EMBEDDING_DIMS and
+            EMBED_PARALLEL_CALLS.
+
+    Returns:
+        VoyageEmbedder over EMBEDDING_MODEL, calling through the shared Voyage clients.
+
+    Raises:
+        ValueError: VOYAGE_API_KEY is not set.
+    """
+    if not settings.voyage_api_key:
+        raise ValueError("VOYAGE_API_KEY is not set")
+    clients = shared_voyage_clients(settings.voyage_api_key)
+    return VoyageEmbedder(
+        clients,
+        settings.embedding_model,
+        settings.embedding_dims,
+        settings.embed_parallel_calls,
+    )
+
+
+def build_voyage_reranker(settings: Settings) -> VoyageReranker:
+    """Build the Voyage reranker from settings.
+
+    Args:
+        settings: The app settings; reads VOYAGE_API_KEY and RERANK_MODEL.
+
+    Returns:
+        VoyageReranker over RERANK_MODEL, calling through the shared Voyage clients.
+
+    Raises:
+        ValueError: VOYAGE_API_KEY is not set.
+    """
+    if not settings.voyage_api_key:
+        raise ValueError("VOYAGE_API_KEY is not set")
+    clients = shared_voyage_clients(settings.voyage_api_key)
+    return VoyageReranker(clients, settings.rerank_model)

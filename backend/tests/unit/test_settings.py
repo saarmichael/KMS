@@ -3,7 +3,9 @@ from kms.config import Settings
 
 def test_defaults():
     s = Settings(_env_file=None)
-    assert s.ai_provider == "fake"
+    assert s.vision_provider == "fake"
+    assert s.embedding_provider == "fake"
+    assert s.rerank_provider == "none"
     assert s.worker_threads == 4
     assert s.units_per_path == 100
     assert s.page_size == 20

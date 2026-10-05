@@ -33,7 +33,12 @@ def health() -> dict:
     current, head = migrations.current_revision(engine), migrations.head_revision(url)
     report["migrations"] = {"current": current, "head": head, "ok": current == head}
     report["notify"] = db.notify_self_test()
-    report["ai_provider"] = get_settings().ai_provider
+    settings = get_settings()
+    report["ai"] = {
+        "vision": settings.vision_provider,
+        "embedding": settings.embedding_provider,
+        "rerank": settings.rerank_provider,
+    }
     if not (report["migrations"]["ok"] and report["notify"]["ok"]):
         report["status"] = "degraded"
         logger.warning(

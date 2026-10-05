@@ -1,16 +1,33 @@
-"""The process-wide blob store, built from settings on first use (same pattern as db.get_engine)."""
+"""The process-wide blob store, built on first use by the store BLOB_STORE names (same pattern as
+db.get_engine)."""
 
-from kms.blob.store import BlobStore, LocalBlobStore
-from kms.config import get_settings
+import logging
+from collections.abc import Callable
+
+from kms.blob.store import BlobStore, build_local_blob_store
+from kms.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+
+# Store name to builder, so that adding a store is one line here and the getter below never changes.
+BLOB_STORE_BUILDERS: dict[str, Callable[[Settings], BlobStore]] = {
+    "local": build_local_blob_store,
+}
 
 _store: BlobStore | None = None
 
 
 def get_blob_store() -> BlobStore:
-    """The process-wide blob store, created from settings on first use."""
+    """Return the process-wide blob store, building it from settings on first use.
+
+    Returns:
+        The store built by BLOB_STORE's builder.
+    """
     global _store
     if _store is None:
-        _store = LocalBlobStore(get_settings().blob_dir)
+        settings = get_settings()
+        _store = BLOB_STORE_BUILDERS[settings.blob_store](settings)
+        logger.info("blob_store_selected store=%s", settings.blob_store)
     return _store
 
 

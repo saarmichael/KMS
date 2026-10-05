@@ -47,7 +47,8 @@ def recordings_dir(tmp_path_factory) -> Path:
 def live_provider(monkeypatch, recordings_dir):
     # The settings and the adapters are cached per process, so both are reset on the way in
     # and on the way out; otherwise the real provider would leak into other tests.
-    monkeypatch.setenv("AI_PROVIDER", "real")
+    monkeypatch.setenv("VISION_PROVIDER", "gemini")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "voyage")
     monkeypatch.setenv("AI_CACHE_DIR", str(recordings_dir))
     get_settings.cache_clear()
     set_vision(None)

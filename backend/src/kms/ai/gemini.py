@@ -19,6 +19,7 @@ from kms.ai.errors import ErrorVerdict, RetryPolicy, call_with_retries
 from kms.ai.interfaces import Description, PhotoDetails, Vision
 from kms.ai.prompts import REPAIR_PROMPT, TEXT_PROMPT, build_image_prompt
 from kms.ai.schema import Metadata
+from kms.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,7 @@ class GeminiVision(Vision):
     Attributes:
         client: The Gemini client, built without the SDK's own retries.
         models: Model ids in the order they are tried; every call starts at the first.
+        model: The first of `models`, the one asked first.
     """
 
     def __init__(self, client: genai.Client, models: list[str]):
@@ -114,6 +116,7 @@ class GeminiVision(Vision):
         """
         self.client = client
         self.models = models
+        self.model = models[0]
 
     def describe(
         self,
@@ -279,3 +282,23 @@ class GeminiVision(Vision):
                 reason = candidate.finish_reason
                 raise ContentBlockedError(f"Gemini blocked the answer: {reason.value}")
         return response.text or ""
+
+
+def build_gemini_vision(settings: Settings) -> GeminiVision:
+    """Build the Gemini vision adapter from settings.
+
+    Args:
+        settings: The app settings; reads GEMINI_API_KEY and VISION_MODELS.
+
+    Returns:
+        GeminiVision over VISION_MODELS, through a client of its own.
+
+    Raises:
+        ValueError: GEMINI_API_KEY is not set.
+    """
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is not set")
+    # No retry_options: the SDK's own retries stay off, so only our backoff decides when to try
+    # again. No timeout either: each request takes its caller's.
+    client = genai.Client(api_key=settings.gemini_api_key)
+    return GeminiVision(client, settings.vision_models)

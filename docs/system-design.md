@@ -26,10 +26,10 @@ flowchart LR
 | --- | --- | --- |
 | Web UI | Upload files, see them, search, manage collections | React SPA served by the API |
 | API | Accept uploads, list assets, run searches | Python, sync |
-| Blob store | Keep the raw file bytes | Local volume behind a `BlobStore` interface |
+| Blob store | Keep the raw file bytes | Local volume behind a `BlobStore` interface; the store is chosen in the settings (`BLOB_STORE`) |
 | Database | Asset rows, AI metadata, keyword index, vector index | Postgres + pgvector |
 | Worker | Turn a saved file into a searchable asset | Same container, thread pool |
-| AI services | Describe files, embed text and images, optionally rerank (off by default) | Hosted APIs behind adapters. Two vendors: Google (Gemini Flash) for vision and summaries; Voyage (multimodal-3.5, and its reranker if used) for embeddings. |
+| AI services | Describe files, embed text and images, optionally rerank (off by default) | Hosted APIs behind adapters; the provider for each role (vision, embedding, rerank) is chosen in the settings. Two vendors today: Google (Gemini Flash) for vision and summaries; Voyage (multimodal-3.5, and its reranker if used) for embeddings. |
 | Deployment | One container, one URL | Railway |
 
 ## Scope
@@ -38,7 +38,7 @@ Everything below this section is v1 unless it appears in one of these lists. Ite
 
 **Build only if time allows, in this order**
 
-1. Reranker: the pluggable stage exists with a no-op; the Voyage implementation and its flag come last (#19). Built, off by default (`RERANK_ENABLED`).
+1. Reranker: the pluggable stage exists with a no-op; the Voyage implementation and its flag come last (#19). Built, off by default (`RERANK_PROVIDER`).
 2. pg\_trgm typo correction: vocabulary table from ts\_stat, trigram index, query-term correction before the keyword search (#23).
 
 **Present as a stub, not implemented**

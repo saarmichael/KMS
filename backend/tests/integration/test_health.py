@@ -6,3 +6,8 @@ def test_health_reports_db_migrations_and_notify(client):
     assert body["db"] == "ok"
     assert body["migrations"]["ok"], body["migrations"]
     assert body["notify"]["ok"], body["notify"]
+
+
+def test_health_reports_each_ai_provider(client):
+    body = client.get("/api/health").json()
+    assert body["ai"] == {"vision": "fake", "embedding": "fake", "rerank": "none"}

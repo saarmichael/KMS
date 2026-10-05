@@ -16,7 +16,7 @@ Deliberately not automated: the React UI, vendor adapters beyond one skippable l
 
 ## Fake adapters
 
-Both deterministic, selected with `AI_PROVIDER=fake`. The same switch is the local dev loop, so building the UI burns no quota.
+Both deterministic, selected with `VISION_PROVIDER=fake` and `EMBEDDING_PROVIDER=fake` (the defaults). The same settings are the local dev loop, so building the UI burns no quota.
 
 | Adapter | Behaviour |
 | --- | --- |
@@ -69,7 +69,7 @@ docker compose --profile full up -d --build   # api + db (pgvector image)
 make seed                     # ingests seed/demo/ through the upload path
 make test                     # unit + integration (fake adapters)
 make test-live                # adds the live test; needs API keys
-AI_PROVIDER=fake make dev     # UI work without quota
+VISION_PROVIDER=fake EMBEDDING_PROVIDER=fake RERANK_PROVIDER=none make dev   # UI work without quota
 ```
 
 ## Manual checklist (the demo script)

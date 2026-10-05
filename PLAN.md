@@ -77,6 +77,7 @@ step that needs them. Anything marked *proposed* is Claude's suggestion, waiting
 | D58 | Demo mode | `DEMO_MODE` (default off) is a runtime setting: `GET /api/config` returns `{demo_mode}`, the UI reads it once on load, shows a "Demo" label by the logo, and greys out Delete, with a hint bubble on hover, "Deleting collections is not allowed in demo mode", and `DELETE /api/collections/{name}` answers `403` while it is on, so the shared collection is safe from curl too. A failed config call leaves the button enabled; the server still refuses. A build-time `VITE_DEMO_MODE` was weighed (a rebuild per mode, a Dockerfile `ARG`). There is no per-asset delete, so nothing else is switched off. Phase 9, item 10 | decided (Sep 29) |
 | D59 | Review fixes before hand-over | An external-review pass found: the SPA route served any file on disk (`%2e%2e` in the URL), so it now serves only files that resolve inside the build; `make test` read `DEMO_MODE` from `.env`; the built SPA was tracked because `.gitignore` named the wrong path; an oversized upload was received in full before its `413`; a vendor outage in search was a bare `500`; recordings grew with every query and could be left half-written; "Show more" could append a page of an old filter; `q` had no length limit; docs lagged the code. Fixes: resolve-and-check in `spa()`; `DEMO_MODE` pinned in the test conftest; the `.gitignore` path; a `Content-Length` middleware (`413` before the body is read); `503` via `QueryEmbeddingFailed`; `AI_CACHE_DIR` off by default and atomic `write_recording`; the view's `AbortController` cancels its later pages; `q` capped at 500 characters (`422`); README, system design, contract and the entrypoint comment brought in line, F13 retired. Left as is (Michael): seeding not built, local recordings and blobs in the Docker image, the Phase log. Phase 9, item 11 | decided (Sep 29) |
 | D60 | Checklist follow-ups | Three checklist agents (browser demo script, backend ops and contract, a fresh reviewer following the README) ran against throwaway instances after D59. Small fixes: `spa()` answers an unknown `api/` path with a JSON `404` and treats a path it cannot resolve (a NUL byte) as unknown; the no-cache test builds its own UI folder, so a fresh clone passes; the search box stops at 500 characters; a model answer that fails validation is stored as a readable sentence, the raw error kept in the log; a `422` on a list filter names the parameter, not its index; docs (auth wording, reranker needs real adapters, TESTING.md run and open items, the unit kinds and deploy source in the design); the API title and the contract say Sift. Everything else found is listed, unfixed, in `Smart_Search/flaws.md` (Michael, Sep 29). Phase 9, item 12 | decided (Sep 29) |
+| D61 | Adapters chosen in the settings | `AI_PROVIDER=fake\|real` meant Gemini and Voyage, hard-wired in the `get_*()` factories and in the recording wrappers, so a new vendor meant editing them. Each role now names its provider: `VISION_PROVIDER` (`fake`, `gemini`), `EMBEDDING_PROVIDER` (`fake`, `voyage`), `RERANK_PROVIDER` (`none`, `voyage`, replacing `RERANK_ENABLED`). Each vendor module has a builder `(settings) -> adapter`; `ai/__init__.py` keeps one table per role from provider name to builder. Keys stay per vendor, model settings per role. `Vision` gains `model`, `Embedder` gains `dims`, so recording wraps any vendor. `/api/health` reports `ai: {vision, embedding, rerank}` (Michael). A leftover `AI_PROVIDER` or `RERANK_ENABLED` stops the app at startup, so a deployment cannot fall back to the fakes unnoticed (Michael). Callers of the getters do not change. Weighed: a vendor setting under `AI_PROVIDER=real`; an `if/elif` per getter; a dotted class path in the env. The blob store follows the same idea (Michael): `BLOB_STORE` (`local`) picks it from a table of builders in `blob/__init__.py`, with `LocalBlobStore` the only implementation; `/api/health` unchanged. Phase 9, item 13 | decided (Oct 5) |
 
 Open readiness items (none exist yet, all are Phase 0 steps): Docker Desktop, `uv`, Railway CLI, Gemini API
 key, Voyage API key, Railway account. GitHub repo: D21.
@@ -103,7 +104,8 @@ and the changes left unstaged; Michael reviews the diff and commits it himself (
 is asked before the step that depends on it, never answered by assumption. Claude explains anything about
 the stack that is new to Michael in the message that introduces it.
 
-**Rules that keep the loop cheap.** `AI_PROVIDER=fake` is the local default; real vendors are used only in
+**Rules that keep the loop cheap.** The fake providers are the local default (`VISION_PROVIDER=fake`,
+`EMBEDDING_PROVIDER=fake`); real vendors are used only in
 the spike, the live test and seeding. Secrets live in `.env` (git-ignored); `.env.example` lists every
 variable with a comment. No step reaches into a later phase's concern.
 
@@ -1595,6 +1597,99 @@ embedding or a 20-text rerank in well under a second, so the timeouts only cut c
   `AI_PROVIDER=real`); TESTING.md (the compose profile, no CI yet, rerank built, the Claude Code sentence);
   system-design (the five unit kinds, dedup unique on `(collection, sha256)`, deploy by `railway up`); contract
   and FastAPI title "Sift"; `health.py` names; `Unit` docstring lists `visible_text`.
+
+13. **Adapters chosen in the settings (D61)**: the design puts the vendors behind adapters so that models can be
+    swapped, but `AI_PROVIDER` is only `fake` or `real`, and "real" is Gemini and Voyage built by hand in
+    `get_vision()`, `get_embedder()` and `get_reranker()`; the recording wrappers accept only `GeminiVision` and
+    `VoyageEmbedder`. Another vendor meant editing the getters. On branch `provider-settings`, one part in two
+    stages, approved Oct 5. Stage 3 added Oct 5 (Michael): `get_blob_store()` builds `LocalBlobStore` directly
+    in the same way, so the blob store follows the same idea.
+
+| Stage | What | Status |
+| --- | --- | --- |
+| 1 | Code, tests and the contract: provider settings, builders and tables, interfaces, recording, health | done |
+| 2 | Docs and env: README, `.env.example`, `docker-compose.yml`, TESTING.md, system design, "How we work" | done |
+| 3 | Blob store chosen in the settings: `BLOB_STORE`, a builder and a table, tests, docs | done |
+
+**Plan (approved Oct 5).** Settled: each role names its provider, an unknown name fails at startup; keys stay
+named per vendor (`GEMINI_API_KEY`, `VOYAGE_API_KEY`), model settings per role (`VISION_MODELS`,
+`EMBEDDING_MODEL`, `EMBEDDING_DIMS`, `RERANK_MODEL`) and must name models of the chosen provider; the reranker
+is included (Michael); `/api/health` changes shape (Michael); a retired setting refuses to start (Michael); the
+vendor SDKs stay imported at the top of their modules. Callers of the getters (`ingest/worker.py`,
+`search/service.py`, `cli.py`) do not change: they use only `describe`, `embed`, `rerank` and `.model`. No new
+dependency. Adding a vendor: its module with the adapter and a builder, its key setting, its name in the
+provider `Literal`, one line in the table.
+
+- *`config.py`:* `ai_provider` and `rerank_enabled` leave as settings. New `vision_provider: Literal["fake",
+  "gemini"] = "fake"`, `embedding_provider: Literal["fake", "voyage"] = "fake"`, `rerank_provider:
+  Literal["none", "voyage"] = "none"`. The model settings' comments no longer name a vendor. Retired:
+  `ai_provider: str | None = None` and `rerank_enabled: str | None = None` stay as fields only so pydantic-settings
+  reads them from the environment and `.env`; `_refuse_retired_setting(cls, value: str | None, info) -> None`
+  (a `field_validator`) raises `ValueError` naming the replacement ("AI_PROVIDER was replaced by VISION_PROVIDER,
+  EMBEDDING_PROVIDER and RERANK_PROVIDER"; "RERANK_ENABLED was replaced by RERANK_PROVIDER") when either is set.
+- *`ai/interfaces.py`:* `Vision.model: str`, the id of the model asked first; `Embedder.dims: int`, the length
+  of every vector.
+- *`ai/gemini.py`:* `GeminiVision.__init__` also sets `self.model = models[0]`. New
+  `build_gemini_vision(settings: Settings) -> GeminiVision`: a `genai.Client` with the SDK's retries off and no
+  timeout, over `VISION_MODELS`; `ValueError("GEMINI_API_KEY is not set")` without the key.
+- *`ai/voyage.py`:* new `shared_voyage_clients(api_key: str) -> VoyageClients`, one per key for the life of the
+  process (`lru_cache`), shared by the embedder and the reranker; replaces the `_voyage_clients` global. New
+  `build_voyage_embedder(settings: Settings) -> VoyageEmbedder` (`EMBEDDING_MODEL`, `EMBEDDING_DIMS`,
+  `EMBED_PARALLEL_CALLS`) and `build_voyage_reranker(settings: Settings) -> VoyageReranker` (`RERANK_MODEL`);
+  both `ValueError("VOYAGE_API_KEY is not set")` without the key.
+- *`ai/fake.py`, `ai/noop.py`:* `build_fake_vision(settings: Settings) -> FakeVision`,
+  `build_fake_embedder(settings: Settings) -> FakeEmbedder` (`EMBEDDING_DIMS`),
+  `build_noop_reranker(settings: Settings) -> NoOpReranker`; none raise.
+- *`ai/recorded.py`:* `RecordedVision(inner: Vision, cache_dir: Path)` keys on `inner.model`, the same value as
+  `models[0]` before, so existing recordings still match; `RecordedEmbedder(inner: Embedder, cache_dir: Path)`.
+  Docstrings say "the vendor", not Gemini or Voyage.
+- *`ai/__init__.py`:* `VISION_BUILDERS: dict[str, Callable[[Settings], Vision]]`, `EMBEDDER_BUILDERS`,
+  `RERANKER_BUILDERS`, from provider name to builder. `get_vision() -> Vision` and `get_embedder() -> Embedder`
+  build once from the configured provider's builder and wrap the result in recording when `AI_CACHE_DIR` is set
+  and the provider is not `fake`; `get_reranker() -> Reranker` builds once, never recorded. Each logs
+  `ai_adapter_selected role=%s provider=%s model=%s`; a builder's `ValueError` passes through. `set_vision` and
+  `set_embedder` unchanged.
+- *`api/health.py`, `docs/api-contract.md` §6.9:* `ai_provider` becomes `ai: {vision: string, embedding: string,
+  rerank: string}`, the three provider names. Nothing in the frontend reads it.
+- *Tests, new `tests/unit/test_ai_factory.py`* (the factory tests in `test_fake_adapters.py`,
+  `test_voyage_embedder.py` and `test_recorded.py` move here): `test_every_provider_name_has_a_builder` (each
+  provider `Literal` and its table hold the same names), `test_unknown_provider_is_refused`,
+  `test_retired_ai_provider_is_refused`, `test_retired_rerank_enabled_is_refused`,
+  `test_fake_providers_need_no_keys`, `test_gemini_vision_is_built_from_settings`,
+  `test_missing_gemini_key_is_refused`, `test_voyage_embedder_is_built_from_settings`,
+  `test_missing_voyage_key_is_refused`, `test_roles_choose_independently` (fake vision with the Voyage embedder),
+  `test_voyage_reranker_works_without_a_real_embedder`, `test_embedder_and_reranker_share_voyage_clients`,
+  `test_recording_wraps_a_vendor_but_not_the_fake`. In `test_recorded.py`: `test_vision_recording_key_is_unchanged`.
+  Health: `test_health_reports_each_ai_provider`. Updated: `tests/conftest.py` pins the three providers to
+  `fake`, `fake`, `none`; the `real_provider` fixture becomes `vendor_providers` (`gemini`, `voyage`, `none`);
+  `test_settings` checks the new defaults; the live tests set the providers by name.
+- *Stage 2, docs and env:* `.env.example` and `docker-compose.yml` carry the three providers; README (the AI
+  settings and a short "adding a vendor" recipe; the vector column is fixed at `EMBEDDING_DIMS = 1024` in
+  `models.py`, so an embedder of another size also needs a migration, added to the backfill note); TESTING.md;
+  the AI services row in the system design; "Rules that keep the loop cheap" above.
+- *Deploy:* before this reaches Railway, set `VISION_PROVIDER=gemini`, `EMBEDDING_PROVIDER=voyage` (and
+  `RERANK_PROVIDER=voyage` if the reranker is on) and remove `AI_PROVIDER` and `RERANK_ENABLED`; otherwise the
+  app refuses to start. Same for the local `backend/.env`.
+
+**Stage 3 plan (approved Oct 5).** Settled (Michael): the same idea as the AI providers, with `LocalBlobStore`
+the only implementation; no S3 store is built (it stays a README "how this scales" item). The setting is
+`BLOB_STORE` (Michael); `/api/health` does not report it. `BLOB_DIR` stays as it is, a setting of the local store.
+Callers of `get_blob_store()` (`ingest/upload.py`, `ingest/worker.py`, `api/assets.py`) and `set_blob_store` in
+the tests do not change. No new dependency; `docker-compose.yml` unchanged, the default `local` applies.
+
+- *`config.py`:* `blob_store: Literal["local"] = "local"` in the storage section; the comment on `blob_dir` says
+  the local store reads it.
+- *`blob/store.py`:* new `build_local_blob_store(settings: Settings) -> LocalBlobStore`, a `LocalBlobStore` on
+  `BLOB_DIR`; never raises (the folder is created on the first put).
+- *`blob/__init__.py`:* new `BLOB_STORE_BUILDERS: dict[str, Callable[[Settings], BlobStore]] = {"local":
+  build_local_blob_store}`. `get_blob_store() -> BlobStore` builds once from
+  `BLOB_STORE_BUILDERS[settings.blob_store](settings)` and logs `blob_store_selected store=%s`.
+  `set_blob_store` unchanged.
+- *Tests (`tests/unit/test_blob_store.py`):* `test_every_blob_store_name_has_a_builder` (the `Literal` and the
+  table hold the same names), `test_unknown_blob_store_is_refused` (`BLOB_STORE=s3` raises `ValidationError`),
+  `test_local_blob_store_is_built_from_settings` (`get_blob_store()` gives a `LocalBlobStore` on `BLOB_DIR`).
+- *Docs:* `.env.example` (`BLOB_STORE=local` with a comment); README (the settings line; the "Adding a vendor"
+  recipe covers the blob store); the blob store row in the system design.
 
 Each is its own gate; each can be skipped without touching anything else.
 

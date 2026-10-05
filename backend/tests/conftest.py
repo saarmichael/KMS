@@ -16,9 +16,11 @@ from kms.migrations import upgrade_head
 # Tests drive the worker themselves, so the app must not start its own pool. Set before any
 # test reads the settings, which are cached on first read; the environment wins over .env.
 os.environ["WORKER_ENABLED"] = "false"
-# Tests assert on the fake adapters' fixtures, and must never call a vendor because .env says
-# "real". The live tests switch to the real provider themselves.
-os.environ["AI_PROVIDER"] = "fake"
+# Tests assert on the fake adapters' fixtures, and must never call a vendor because .env names
+# one. The live tests switch to the vendor providers themselves.
+os.environ["VISION_PROVIDER"] = "fake"
+os.environ["EMBEDDING_PROVIDER"] = "fake"
+os.environ["RERANK_PROVIDER"] = "none"
 # Tests call the API without a password; the auth tests set one themselves.
 os.environ["APP_PASSWORD"] = ""
 # Tests delete collections freely, even when .env turns demo mode on; the demo-mode tests set it

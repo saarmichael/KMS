@@ -24,11 +24,14 @@ cd frontend && npm install && cd ..
 make dev                               # Postgres, migrations, API on :8000, UI on :5173
 ```
 
-By default `AI_PROVIDER=fake`: deterministic adapters that need no API keys
-and cost no quota. Set `AI_PROVIDER=real` with `GEMINI_API_KEY` and
-`VOYAGE_API_KEY` to use the real vendors. Other settings in `.env`:
-`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_DIR`, `SEED_ON_START`,
-`RERANK_ENABLED` (relevance from the reranker), `AI_CACHE_DIR` (record and
+Each AI role names its provider. By default `VISION_PROVIDER=fake` and
+`EMBEDDING_PROVIDER=fake`: deterministic adapters that need no API keys and
+cost no quota. Set `VISION_PROVIDER=gemini` with `GEMINI_API_KEY` and
+`EMBEDDING_PROVIDER=voyage` with `VOYAGE_API_KEY` to use the real vendors;
+each role switches on its own. Other settings in `.env`:
+`WORKER_THREADS` (default 4), `WORKER_ENABLED`, `BLOB_STORE` (default
+`local`), `BLOB_DIR`, `SEED_ON_START`,
+`RERANK_PROVIDER` (relevance from the reranker), `AI_CACHE_DIR` (record and
 replay the vendors' answers), `APP_PASSWORD` (one password in front of the
 app), `DEMO_MODE` (visitors cannot delete collections).
 
@@ -119,10 +122,10 @@ share a single vector space and one HNSW index. Search pulls the top 100 units
 from each path, fuses the rankings in Python, groups by asset (best unit wins),
 and returns pages of 20 with a "show more". No score threshold is applied:
 recall is preferred over precision, so a weak match costs a glance and a real
-match is never dropped. With `RERANK_ENABLED`, a cross-encoder (Voyage
+match is never dropped. With `RERANK_PROVIDER=voyage`, a cross-encoder (Voyage
 rerank-2.5) scores the first page against the query and each result shows that
-relevance; it needs `AI_PROVIDER=real`. Off by default, or with the fake
-adapters, the no-op keeps the fused order.
+relevance; it needs `VOYAGE_API_KEY`, not the real embedder. Off by default
+(`RERANK_PROVIDER=none`), the no-op keeps the fused order.
 
 ## Stack
 
@@ -136,6 +139,30 @@ adapters, the no-op keeps the fused order.
 | Embeddings | voyage-multimodal-3.5, 1024 dims |
 | Migrations | Alembic, run at container start |
 | Hosting | Railway (app + Postgres + volume) |
+
+### Adding a vendor
+
+Vision, embedding and rerank each sit behind an interface in
+`backend/src/kms/ai/interfaces.py`, and each names its provider in the
+settings. A new vendor takes four steps:
+
+1. `backend/src/kms/ai/<vendor>.py`: the adapter class implementing `Vision`,
+   `Embedder` or `Reranker`, and a builder `build_<vendor>_<role>(settings)`
+   that returns it.
+2. Its API key setting in `config.py`.
+3. Its name in the role's provider `Literal` in `config.py`.
+4. One line in the role's table in `ai/__init__.py` (`VISION_BUILDERS`,
+   `EMBEDDER_BUILDERS`, `RERANKER_BUILDERS`), from the name to the builder.
+
+A test checks that every allowed name has a builder. The model settings
+(`VISION_MODELS`, `EMBEDDING_MODEL`, `EMBEDDING_DIMS`, `RERANK_MODEL`) then
+name that vendor's models; an embedder of another size also needs a migration
+(see embedding-model migration below).
+
+The blob store works the same way: `BlobStore` in
+`backend/src/kms/blob/store.py`, a builder next to the class, its name in
+the `BLOB_STORE` `Literal`, and one line in `BLOB_STORE_BUILDERS` in
+`blob/__init__.py`. `local` is the only store today.
 
 ## Deliberately out of scope
 
@@ -162,7 +189,9 @@ interface, a flag, a stub, a column) where each one plugs in.
   and search filters on the current model, so a model switch degrades
   gracefully (old rows fall back to keyword search). The backfill job that
   re-embeds old rows is not written; in development, delete the collection
-  and reseed.
+  and reseed. The vector column is fixed at 1024 dimensions
+  (`EMBEDDING_DIMS` in `models.py`), so an embedder of another size also
+  needs a migration.
 - **Text-heavy images.** Images that are mostly text (dense document scans)
   lose small text at the ~1024 px the vision model receives. Production would
   branch on the `image_type` the model already returns and send document-like
@@ -308,4 +337,4 @@ the same; each client gets a profile, not a fork.
   which is why I refused to draw a match/noise threshold. A number that
   actually means "70% relevant" would make that threshold honest.
   Text-only for now; early access; one vendor's benchmarks. Slot: the
-  `Reranker` interface, behind the existing flag.
+  `Reranker` interface, behind `RERANK_PROVIDER`.

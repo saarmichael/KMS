@@ -10,6 +10,8 @@ import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from kms.config import Settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,3 +65,15 @@ class LocalBlobStore(BlobStore):
     def get(self, sha256: str) -> bytes:
         """Read `<root>/<sha256>`; raise FileNotFoundError if it is missing."""
         return (self.root / sha256).read_bytes()
+
+
+def build_local_blob_store(settings: Settings) -> LocalBlobStore:
+    """Build the local blob store from settings.
+
+    Args:
+        settings: The app settings; reads BLOB_DIR.
+
+    Returns:
+        LocalBlobStore on BLOB_DIR. Never raises: the folder is created on the first put.
+    """
+    return LocalBlobStore(settings.blob_dir)

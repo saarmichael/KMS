@@ -399,13 +399,13 @@ type Health = {
   db: string;                // "ok", "bad", or "error: <message>"
   migrations: { current: string | null; head: string | null; ok: boolean };
   notify: { ok: boolean; ms: number | null; error?: string };  // error only when ok is false
-  ai_provider: "fake" | "real";
+  ai: { vision: string; embedding: string; rerank: string };  // each role's provider: "fake", "gemini", "voyage", "none"
 };
 ```
 
-When `db` is not reachable the response stops after `db`, so `migrations`, `notify` and `ai_provider` are
-missing. This endpoint is the one exception to "no key is ever omitted"; it is kept as built because no
-screen depends on it.
+When `db` is not reachable the response stops after `db`, so `migrations`, `notify` and `ai` are missing.
+This endpoint is the one exception to "no key is ever omitted"; it is kept as built because no screen
+depends on it.
 
 ### 6.10 `GET /api/config` — deployment settings
 
@@ -454,3 +454,4 @@ If the call fails, the UI treats `demo_mode` as `false`; the server still refuse
 | D52 | The text read from an image is its own part: `snippet.kind` and `found_in` value `"visible_text"` | 6.8 |
 | D56 | The reranker's `relevance` on the first 20 results; `order=relevance`, the default, sorts them by it | 6.8 |
 | D58 | Demo mode: `GET /api/config` tells the UI; deleting a collection is refused with `403` | 6.7, 6.10 |
+| D61 | Health names the AI provider chosen for each role (`ai`) | 6.9 |

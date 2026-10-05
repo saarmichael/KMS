@@ -15,6 +15,7 @@ from kms.ai.errors import RetryPolicy
 from kms.ai.fake_fixtures import FIXTURES
 from kms.ai.interfaces import Description, Embedder, PhotoDetails, Vision
 from kms.ai.schema import Metadata
+from kms.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -141,3 +142,27 @@ class FakeEmbedder(Embedder):
             length = math.sqrt(sum(value * value for value in vector))
             vectors.append([value / length for value in vector])
         return vectors
+
+
+def build_fake_vision(settings: Settings) -> FakeVision:
+    """Build the fake vision adapter.
+
+    Args:
+        settings: The app settings; nothing is read, the fake needs none.
+
+    Returns:
+        A FakeVision. Never raises.
+    """
+    return FakeVision()
+
+
+def build_fake_embedder(settings: Settings) -> FakeEmbedder:
+    """Build the fake embedder from settings.
+
+    Args:
+        settings: The app settings; reads EMBEDDING_DIMS.
+
+    Returns:
+        A FakeEmbedder whose vectors have EMBEDDING_DIMS dimensions. Never raises.
+    """
+    return FakeEmbedder(settings.embedding_dims)

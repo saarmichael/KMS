@@ -1,15 +1,14 @@
+import hashlib
 import json
 
 import pytest
 
-from kms.ai import get_embedder, get_vision, recorded, set_embedder, set_vision
+from kms.ai import recorded
 from kms.ai.errors import BACKGROUND_POLICY
-from kms.ai.gemini import GeminiVision
 from kms.ai.interfaces import Description, PhotoDetails
+from kms.ai.prompts import PROMPT_VERSION
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
 from kms.ai.schema import Metadata
-from kms.ai.voyage import VoyageEmbedder
-from kms.config import get_settings
 
 METADATA = Metadata(
     title="Harbour at dusk",
@@ -26,6 +25,7 @@ class StubVision:
 
     def __init__(self, error: Exception | None = None):
         self.models = ["first-model", "second-model"]
+        self.model = "first-model"
         self.error = error
         self.calls = 0
 
@@ -82,6 +82,7 @@ def test_vision_changed_request_is_not_replayed(tmp_path, monkeypatch, change):
     photo_details = PHOTO_DETAILS
     if change == "model":
         inner.models = ["new-first-model", "second-model"]
+        inner.model = "new-first-model"
     elif change == "prompt version":
         monkeypatch.setattr(recorded, "PROMPT_VERSION", recorded.PROMPT_VERSION + 1)
     elif change == "content":
@@ -91,6 +92,27 @@ def test_vision_changed_request_is_not_replayed(tmp_path, monkeypatch, change):
     vision.describe(content, "image", "IMG_1.jpg", photo_details, BACKGROUND_POLICY)
 
     assert inner.calls == 2
+
+
+def test_vision_recording_key_is_unchanged(tmp_path):
+    # The request as it was keyed before the wrapper read `inner.model`, built from the first
+    # model in the list; recordings made then must still be found.
+    old_request = {
+        "model": "first-model",
+        "prompt_version": PROMPT_VERSION,
+        "asset_type": "text",
+        "content_sha256": hashlib.sha256(b"some notes").hexdigest(),
+        "photo_details": None,
+    }
+    path = recorded.recording_path(tmp_path, "vision", old_request)
+    recorded.write_recording(path, {"model": "first-model", "metadata": METADATA.model_dump()})
+    inner = StubVision()
+    vision = RecordedVision(inner, tmp_path)
+
+    description = vision.describe("some notes", "text", "notes.txt", None, BACKGROUND_POLICY)
+
+    assert inner.calls == 0
+    assert description == Description(metadata=METADATA, model="first-model")
 
 
 def test_embed_second_call_is_replayed(tmp_path):
@@ -135,19 +157,3 @@ def test_failed_call_is_not_recorded(tmp_path):
     inner.error = None
     vision.describe(b"jpeg bytes", "image", "IMG_1.jpg", None, BACKGROUND_POLICY)
     assert inner.calls == 2
-
-
-def test_real_provider_records_only_when_cache_dir_is_set(real_provider, monkeypatch, tmp_path):
-    # Dummy keys: building the clients makes no call.
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
-    get_settings.cache_clear()
-    assert isinstance(get_vision(), GeminiVision)
-    assert isinstance(get_embedder(), VoyageEmbedder)
-
-    monkeypatch.setenv("AI_CACHE_DIR", str(tmp_path))
-    get_settings.cache_clear()
-    set_vision(None)
-    set_embedder(None)
-    assert isinstance(get_vision(), RecordedVision)
-    assert isinstance(get_embedder(), RecordedEmbedder)

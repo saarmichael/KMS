@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,10 +27,16 @@ class Settings(BaseSettings):
     test_database_url: str = "postgresql+psycopg://kms:kms@localhost:5432/kms_test"
 
     # --- AI vendors ----------------------------------------------------------
-    ai_provider: Literal["fake", "real"] = "fake"
+    vision_provider: Literal["fake", "gemini"] = "fake"
+    embedding_provider: Literal["fake", "voyage"] = "fake"
+    # Retired settings, kept as fields only so that a leftover value in the environment or .env
+    # stops the app at startup instead of being silently ignored.
+    ai_provider: str | None = None
+    rerank_enabled: str | None = None
     gemini_api_key: str | None = None
     voyage_api_key: str | None = None
-    # The Gemini models that describe images and text files, in the order they are tried: the
+    # The model settings below must name models of the chosen provider.
+    # The vision models that describe images and text files, in the order they are tried: the
     # next one answers when the one before is overloaded. A JSON list in the environment.
     vision_models: list[str] = Field(
         default=[
@@ -43,10 +49,11 @@ class Settings(BaseSettings):
     )
     embedding_model: str = "voyage-multimodal-3.5"
     embedding_dims: int = 1024
-    # How many of one embed's batches are sent to Voyage at once. Voyage allows many requests
-    # a minute, but a large file's batches together can pass its tokens-per-minute limit.
+    # How many of one embed's batches are sent to the embedding vendor at once. A vendor may allow
+    # many requests a minute, while a large file's batches together pass its tokens-per-minute
+    # limit.
     embed_parallel_calls: int = Field(default=20, ge=1)
-    rerank_enabled: bool = False
+    rerank_provider: Literal["none", "voyage"] = "none"
     rerank_model: str = "rerank-2.5"
     # Where the real vendors' answers are recorded and replayed from; empty turns recording
     # off. A string rather than a Path, so that empty can mean off. Off unless set, because
@@ -77,6 +84,8 @@ class Settings(BaseSettings):
     query_cache_size: int = 4096
 
     # --- storage and seed ----------------------------------------------------
+    blob_store: Literal["local"] = "local"
+    # The folder the local blob store keeps the files in.
     blob_dir: Path = Path("./data/blobs")
     seed_dir: Path = Path("../seed")
     seed_on_start: bool = False
@@ -106,6 +115,32 @@ class Settings(BaseSettings):
         if v.startswith("postgres://"):
             return "postgresql+psycopg://" + v[len("postgres://") :]
         return v
+
+    @field_validator("ai_provider", "rerank_enabled")
+    @classmethod
+    def _refuse_retired_setting(cls, value: str | None, info: ValidationInfo) -> None:
+        """Refuse a retired setting that is still set, naming what replaced it.
+
+        A deployment that kept an old setting would otherwise run on the defaults unnoticed.
+
+        Args:
+            value: The retired setting's value as configured; None when it is not set.
+            info: Pydantic's validation context, which names the field being checked.
+
+        Returns:
+            None, as the retired setting is never read.
+
+        Raises:
+            ValueError: The retired setting is set.
+        """
+        if value is None:
+            return None
+        if info.field_name == "ai_provider":
+            raise ValueError(
+                "AI_PROVIDER was replaced by VISION_PROVIDER, EMBEDDING_PROVIDER"
+                " and RERANK_PROVIDER"
+            )
+        raise ValueError("RERANK_ENABLED was replaced by RERANK_PROVIDER")
 
 
 @lru_cache

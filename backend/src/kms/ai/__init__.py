@@ -1,56 +1,63 @@
-"""The process-wide vision and embedding adapters, chosen by AI_PROVIDER on first use
-(same pattern as blob.get_blob_store), and the search reranker."""
+"""The process-wide vision adapter, embedder and search reranker, each built on first use by the
+provider its setting names: VISION_PROVIDER, EMBEDDING_PROVIDER and RERANK_PROVIDER (same pattern
+as blob.get_blob_store)."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
-from google import genai
-
-from kms.ai.fake import FakeEmbedder, FakeVision
-from kms.ai.gemini import GeminiVision
+from kms.ai.fake import build_fake_embedder, build_fake_vision
+from kms.ai.gemini import build_gemini_vision
 from kms.ai.interfaces import Embedder, Reranker, Vision
-from kms.ai.noop import NoOpReranker
+from kms.ai.noop import build_noop_reranker
 from kms.ai.recorded import RecordedEmbedder, RecordedVision
-from kms.ai.voyage import VoyageClients, VoyageEmbedder, VoyageReranker
-from kms.config import get_settings
+from kms.ai.voyage import build_voyage_embedder, build_voyage_reranker
+from kms.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+# Provider name to builder, one table per role, so that adding a vendor is one line here and the
+# getters below never change.
+VISION_BUILDERS: dict[str, Callable[[Settings], Vision]] = {
+    "fake": build_fake_vision,
+    "gemini": build_gemini_vision,
+}
+EMBEDDER_BUILDERS: dict[str, Callable[[Settings], Embedder]] = {
+    "fake": build_fake_embedder,
+    "voyage": build_voyage_embedder,
+}
+RERANKER_BUILDERS: dict[str, Callable[[Settings], Reranker]] = {
+    "none": build_noop_reranker,
+    "voyage": build_voyage_reranker,
+}
 
 _vision: Vision | None = None
 _embedder: Embedder | None = None
 _reranker: Reranker | None = None
-# One set of Voyage clients for the embedder and the reranker, so a timeout's client is built once.
-_voyage_clients: VoyageClients | None = None
 
 
 def get_vision() -> Vision:
     """Return the shared vision adapter, building it from settings on first use.
 
     Returns:
-        FakeVision when AI_PROVIDER is "fake"; GeminiVision over VISION_MODELS when it is "real",
+        The adapter built by VISION_PROVIDER's builder. Unless the provider is "fake", it is
         wrapped in RecordedVision when AI_CACHE_DIR is set.
 
     Raises:
-        ValueError: AI_PROVIDER is "real" and GEMINI_API_KEY is not set.
+        ValueError: The builder refused the settings, for example a missing API key.
     """
     global _vision
     if _vision is None:
         settings = get_settings()
-        if settings.ai_provider == "real":
-            if not settings.gemini_api_key:
-                raise ValueError("GEMINI_API_KEY is not set")
-            # No retry_options: the SDK's own retries stay off, so only our backoff decides
-            # when to try again. No timeout either: each request takes its caller's.
-            client = genai.Client(api_key=settings.gemini_api_key)
-            gemini_vision = GeminiVision(client, settings.vision_models)
-            if settings.ai_cache_dir:
-                _vision = RecordedVision(gemini_vision, Path(settings.ai_cache_dir))
-            else:
-                _vision = gemini_vision
-            logger.info("ai_adapters_selected provider=real vision=%s", settings.vision_models)
-        else:
-            _vision = FakeVision()
-            logger.info("ai_adapters_selected provider=fake vision=%s", _vision.model)
+        provider = settings.vision_provider
+        vision = VISION_BUILDERS[provider](settings)
+        # The fake answers instantly and for free, so recording it would only fill the folder.
+        if settings.ai_cache_dir and provider != "fake":
+            vision = RecordedVision(vision, Path(settings.ai_cache_dir))
+        _vision = vision
+        logger.info(
+            "ai_adapter_selected role=%s provider=%s model=%s", "vision", provider, vision.model
+        )
     return _vision
 
 
@@ -58,35 +65,27 @@ def get_embedder() -> Embedder:
     """Return the shared embedder, building it from settings on first use.
 
     Returns:
-        FakeEmbedder with EMBEDDING_DIMS dimensions when AI_PROVIDER is "fake"; VoyageEmbedder
-        over EMBEDDING_MODEL with EMBEDDING_DIMS dimensions when it is "real", wrapped in
-        RecordedEmbedder when AI_CACHE_DIR is set.
+        The embedder built by EMBEDDING_PROVIDER's builder. Unless the provider is "fake", it is
+        wrapped in RecordedEmbedder when AI_CACHE_DIR is set.
 
     Raises:
-        ValueError: AI_PROVIDER is "real" and VOYAGE_API_KEY is not set.
+        ValueError: The builder refused the settings, for example a missing API key.
     """
-    global _embedder, _voyage_clients
+    global _embedder
     if _embedder is None:
         settings = get_settings()
-        if settings.ai_provider == "real":
-            if not settings.voyage_api_key:
-                raise ValueError("VOYAGE_API_KEY is not set")
-            if _voyage_clients is None:
-                _voyage_clients = VoyageClients(settings.voyage_api_key)
-            voyage_embedder = VoyageEmbedder(
-                _voyage_clients,
-                settings.embedding_model,
-                settings.embedding_dims,
-                settings.embed_parallel_calls,
-            )
-            if settings.ai_cache_dir:
-                _embedder = RecordedEmbedder(voyage_embedder, Path(settings.ai_cache_dir))
-            else:
-                _embedder = voyage_embedder
-            logger.info("ai_adapters_selected provider=real embedder=%s", settings.embedding_model)
-        else:
-            _embedder = FakeEmbedder(settings.embedding_dims)
-            logger.info("ai_adapters_selected provider=fake embedder=%s", _embedder.model)
+        provider = settings.embedding_provider
+        embedder = EMBEDDER_BUILDERS[provider](settings)
+        # The fake answers instantly and for free, so recording it would only fill the folder.
+        if settings.ai_cache_dir and provider != "fake":
+            embedder = RecordedEmbedder(embedder, Path(settings.ai_cache_dir))
+        _embedder = embedder
+        logger.info(
+            "ai_adapter_selected role=%s provider=%s model=%s",
+            "embedding",
+            provider,
+            embedder.model,
+        )
     return _embedder
 
 
@@ -95,25 +94,23 @@ def get_reranker() -> Reranker:
     on first use.
 
     Returns:
-        VoyageReranker over RERANK_MODEL when RERANK_ENABLED is true and AI_PROVIDER is "real";
-        otherwise NoOpReranker, which gives no relevance.
+        The reranker built by RERANK_PROVIDER's builder; never recorded. With "none" it is
+        NoOpReranker, which gives no relevance.
 
     Raises:
-        ValueError: The Voyage reranker is chosen and VOYAGE_API_KEY is not set.
+        ValueError: The builder refused the settings, for example a missing API key.
     """
-    global _reranker, _voyage_clients
+    global _reranker
     if _reranker is None:
         settings = get_settings()
-        if settings.rerank_enabled and settings.ai_provider == "real":
-            if not settings.voyage_api_key:
-                raise ValueError("VOYAGE_API_KEY is not set")
-            if _voyage_clients is None:
-                _voyage_clients = VoyageClients(settings.voyage_api_key)
-            _reranker = VoyageReranker(_voyage_clients, settings.rerank_model)
-            logger.info("ai_adapters_selected provider=real reranker=%s", settings.rerank_model)
+        provider = settings.rerank_provider
+        _reranker = RERANKER_BUILDERS[provider](settings)
+        # A reranker carries no model id of its own, and "none" asks no model at all.
+        if provider == "none":
+            model = "none"
         else:
-            _reranker = NoOpReranker()
-            logger.info("ai_adapters_selected reranker=none")
+            model = settings.rerank_model
+        logger.info("ai_adapter_selected role=%s provider=%s model=%s", "rerank", provider, model)
     return _reranker
 
 
