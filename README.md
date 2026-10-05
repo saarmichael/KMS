@@ -51,7 +51,7 @@ flowchart LR
   UI[Web UI] -- "upload, list, search" --> API[API]
   API -- "insert pending row,<br/>run search queries" --> DB[(Database<br/>rows + indexes)]
   API -- "save bytes" --> Blob[Blob store<br/>the file bytes]
-  API -- "embed the query" --> AI[AI services<br/>vision, embeddings]
+  API -- "embed the query,<br/>rerank the first page" --> AI[AI services<br/>vision, embeddings, rerank]
   DB ~~~ W[Worker]
   Blob ~~~ W
   AI ~~~ W
@@ -64,7 +64,8 @@ The API saves an upload and answers at once. The worker, running in the same
 container, picks the file up from the Postgres queue, asks the AI services to
 describe and embed it, and writes the result in one transaction. A search is
 handled by the API alone: it embeds the query (or takes it from a cache), runs
-the keyword and vector searches in the database, and merges the results.
+the keyword and vector searches in the database, merges the results, and has
+the AI services rerank the first page.
 
 ### Upload pipeline
 
@@ -91,9 +92,8 @@ flowchart TD
   K --> F[<b>API</b><br/>Merge the two rankings<br/>reciprocal rank fusion]
   V --> F
   F --> G[<b>API</b><br/>Group by asset, best unit wins]
-  G -. "optional, off by default" .-> RR[<b>AI</b><br/>Rerank the first page]
-  G --> R([Page of 20 assets<br/>snippet + score, show more])
-  RR -.-> R
+  G --> RR[<b>AI</b><br/>Rerank the first page<br/>cross-encoder, query + snippet]
+  RR --> R([Page of 20 assets<br/>snippet + relevance, show more])
 ```
 
 ## What it does
